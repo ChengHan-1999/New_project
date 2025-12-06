@@ -74,6 +74,13 @@ public:
 		v[2] += pVec.v[2];
 		return *this;
 	};
+	Vec3& operator-=(const Vec3& pVec)
+	{
+		v[0] -= pVec.v[0];
+		v[1] -= pVec.v[1];
+		v[2] -= pVec.v[2];
+		return *this;
+	};
 	Vec3 operator- (const Vec3& pVec) const {
 		return Vec3(v[0] - pVec.v[0], v[1] - pVec.v[1], v[2] - pVec.v[2]);
 	}
@@ -542,7 +549,7 @@ public:
 
 		return r;
 	}
-	Matrix static Lookat(Vec3& CameraPositon,Vec3& to,Vec3& up)  //返回的是自动生成的视图矩阵
+	Matrix static Lookat(const Vec3& CameraPositon,const Vec3& to,const Vec3& up)  //返回的是自动生成的视图矩阵
 	{
 		Matrix ret;
 		Vec3 forward = (to - CameraPositon).normalize();  //这里的forward是从相机位置指向目标位置的方向向量

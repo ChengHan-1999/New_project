@@ -10,6 +10,7 @@
 #include <corecrt_math_defines.h>
 #include"GEMLoader.h"
 #include"Animation.h"
+#include"Camera.h"
 struct PRIM_VERTEX  //这个是顶点结构体，用来存放顶点数据
 {
     Vec3 position;
@@ -1331,6 +1332,10 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     //animatedModel.load(&core, "Models/TRex.gem", &psos, &shaders);  //这里是加载了一个带动画的模型
     //AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
     //animatedInstance.init(&animatedModel.animation, 0);
+	Camera camera;
+	static int Xmid = win.WindowWidth / 2;  //鼠标位于中心位置时的X坐标
+	win.mousex = Xmid;  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
+	int lastmousex = Xmid;
     while (true)
     {
         float dt = timer.dt();
@@ -1341,7 +1346,10 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		//注意这里有个大问题，两个int相除会变成整数除法，会计算除float之后强制截断，所以要把其中一个强制转化为float类型然后相除才能保留为float类型
         //constBufferMVP.W = Matrix();
         //constBufferMVP.VP = Matrix::ProjectionMatrix(90.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f) * Matrix::Lookat(from, target, up);  //按照我的写法，矩阵放右边的是先右乘的，每一帧进来这个t都要,一定要有长宽比
-        Matrix vp =  Matrix::Lookat(from, target, up) * Matrix::ProjectionMatrix(90.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f);
+		int dx = win.mousex - lastmousex;  //计算鼠标相对于中心位置的偏移量
+		lastmousex = win.mousex;  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
+        camera.updateCameraPosition(win,dt,dx);
+        Matrix vp =  camera.getViewMatrix(Vec3(0,1,0))* Matrix::ProjectionMatrix(90.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f);
 		//我现在来总结一下我的矩阵，现在的A * B是正确的顺序，但是只能是在C++端满足，所以C++端所有的处理是右乘列向量，但是HLSL是左乘行向量的，所以在HLSL更新的矩阵要把矩阵乘的顺序颠倒
         core.resetCommandList();  // 先 reset
         core.beginFrame();        // 再录制 clear / barrier 等
