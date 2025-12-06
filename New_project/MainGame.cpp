@@ -583,96 +583,96 @@ public:
  //       mesh.draw(core);
  //   }
 //};
-//class Plane
-//{
-//public:
-//    Mesh mesh;
-//    ID3DBlob* vertexShader;
-//    ID3DBlob* pixelShader;
-//    PSOManager psos;
-//    ConstantBuffer constantBuffer;
-//    STATIC_VERTEX addVertex(Vec3 p, Vec3 n, float tu, float tv)
-//    {
-//        STATIC_VERTEX v;
-//        v.pos = p;
-//        v.normal = n;
-//        v.tangent = Vec3(0, 0, 0);
-//        v.tu = tu;
-//        v.tv = tv;
-//        return v;
-//    }
-//
-//	void init(Core* core)  //这个函数用来初始化平面的顶点数据，并上传到显存中
-//    {
-//        std::vector<STATIC_VERTEX> vertices;
-//		vertices.push_back(addVertex(Vec3(-15, 0, -15), Vec3(0, 1, 0), 0, 0));  //用helper函数来快速添加顶点，把多个属性一次性填进去
-//        vertices.push_back(addVertex(Vec3(15, 0, -15), Vec3(0, 1, 0), 1, 0));
-//        vertices.push_back(addVertex(Vec3(-15, 0, 15), Vec3(0, 1, 0), 0, 1));
-//        vertices.push_back(addVertex(Vec3(15, 0, 15), Vec3(0, 1, 0), 1, 1));
-//
-//        std::vector<unsigned int> indices = {
-//            2, 1, 0,
-//            1, 2, 3
-//        };
-//
-//		mesh.init(core, vertices, indices);  //这里将定点数据转化到VRAM中去了
-//		LoadShaders(core);  //这里是加载shader并创建pso
-//		constantBuffer.init(core, sizeof(ConstantBufferStruct_MVP), 2);  //这里是创建constantbuffer ，但是不太对吧，我应该是要穿移动MVP矩阵进去才对
-//    }
-//    std::string ReadFile(std::string filename)
-//            {
-//                std::ifstream file(filename);
-//                std::stringstream buffer;
-//                buffer << file.rdbuf();
-//                return buffer.str();
-//            }
-//    void LoadShaders(Core* core)
-//    {
-//        // Compile Vertex shader
-//        std::string vsSource = ReadFile("VertexShader.hlsl");
-//
-//        ID3DBlob* status;
-//        HRESULT hr = D3DCompile(vsSource.c_str(), strlen(vsSource.c_str()), NULL,
-//            NULL, NULL, "VS", "vs_5_0", 0, 0, &vertexShader, &status);
-//
-//        // CHeck if vertex shader compiles
-//        if (FAILED(hr))
-//        {
-//            if (status)
-//                OutputDebugStringA((char*)status->GetBufferPointer());
-//        }
-//
-//        // Compile pixel shader
-//        std::string psSource = ReadFile("PixelShader.hlsl");
-//
-//        hr = D3DCompile(psSource.c_str(), strlen(psSource.c_str()), NULL, NULL,
-//            NULL, "PS", "ps_5_0", 0, 0, &pixelShader, &status);
-//
-//        // CHeck if pixel shader compiles
-//        if (FAILED(hr))
-//        {
-//            if (status)
-//                OutputDebugStringA((char*)status->GetBufferPointer());
-//        }
-//		psos.createPSO(core, "Plane", vertexShader, pixelShader, VertexLayoutCache::getStaticLayout());  //创建pso,并取名为Plane
-//
-//       
-//    }
-//    void draw(Core* core, ConstantBufferStruct_MVP* cb)
-//    {
-//        
-//		core->beginRenderPass();//外层没有啊，我这里可以调用啊
-//
-//		constantBuffer.update(cb, sizeof(ConstantBufferStruct_MVP), core->frameIndex());  //每一帧画之前都要更新constantbuffer的数据，cb就是更新完了当前帧要穿进来的MVP矩阵
-//		core->getCommandList()->SetGraphicsRootConstantBufferView(  //把constantbuffer绑定到根参数0上,那么shader里面必须通过b0来访问这个，并且只能是VS访问，不是PS访问，因为旋转时间矩阵只在VS里面用到
-//            0,
-//            constantBuffer.getGPUAddress(core->frameIndex())
-//        );
-//
-//		psos.bind(core, "Plane");  //然后绑定Plane的pso
-//        mesh.draw(core);
-//    }
-//};
+class Plane
+{
+public:
+    Mesh mesh;
+    ID3DBlob* vertexShader;
+    ID3DBlob* pixelShader;
+    PSOManager psos;
+    ConstantBuffer constantBuffer;
+    STATIC_VERTEX addVertex(Vec3 p, Vec3 n, float tu, float tv)
+    {
+        STATIC_VERTEX v;
+        v.pos = p;
+        v.normal = n;
+        v.tangent = Vec3(0, 0, 0);
+        v.tu = tu;
+        v.tv = tv;
+        return v;
+    }
+
+	void init(Core* core)  //这个函数用来初始化平面的顶点数据，并上传到显存中
+    {
+        std::vector<STATIC_VERTEX> vertices;
+		vertices.push_back(addVertex(Vec3(-15, 0, -15), Vec3(0, 1, 0), 0, 0));  //用helper函数来快速添加顶点，把多个属性一次性填进去
+        vertices.push_back(addVertex(Vec3(15, 0, -15), Vec3(0, 1, 0), 1, 0));
+        vertices.push_back(addVertex(Vec3(-15, 0, 15), Vec3(0, 1, 0), 0, 1));
+        vertices.push_back(addVertex(Vec3(15, 0, 15), Vec3(0, 1, 0), 1, 1));
+
+        std::vector<unsigned int> indices = {
+            2, 1, 0,
+            1, 2, 3
+        };
+
+		mesh.init(core, vertices, indices);  //这里将定点数据转化到VRAM中去了
+		LoadShaders(core);  //这里是加载shader并创建pso
+		constantBuffer.init(core, sizeof(ConstantBufferStruct_MVP), 2);  //这里是创建constantbuffer ，但是不太对吧，我应该是要穿移动MVP矩阵进去才对
+    }
+    std::string ReadFile(std::string filename)
+            {
+                std::ifstream file(filename);
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                return buffer.str();
+            }
+    void LoadShaders(Core* core)
+    {
+        // Compile Vertex shader
+        std::string vsSource = ReadFile("VertexShader.hlsl");
+
+        ID3DBlob* status;
+        HRESULT hr = D3DCompile(vsSource.c_str(), strlen(vsSource.c_str()), NULL,
+            NULL, NULL, "VS", "vs_5_0", 0, 0, &vertexShader, &status);
+
+        // CHeck if vertex shader compiles
+        if (FAILED(hr))
+        {
+            if (status)
+                OutputDebugStringA((char*)status->GetBufferPointer());
+        }
+
+        // Compile pixel shader
+        std::string psSource = ReadFile("PixelShader.hlsl");
+
+        hr = D3DCompile(psSource.c_str(), strlen(psSource.c_str()), NULL, NULL,
+            NULL, "PS", "ps_5_0", 0, 0, &pixelShader, &status);
+
+        // CHeck if pixel shader compiles
+        if (FAILED(hr))
+        {
+            if (status)
+                OutputDebugStringA((char*)status->GetBufferPointer());
+        }
+		psos.createPSO(core, "Plane", vertexShader, pixelShader, VertexLayoutCache::getStaticLayout());  //创建pso,并取名为Plane
+
+       
+    }
+    void draw(Core* core, ConstantBufferStruct_MVP* cb)
+    {
+        
+		core->beginRenderPass();//外层没有啊，我这里可以调用啊
+
+		constantBuffer.update(cb, sizeof(ConstantBufferStruct_MVP), core->frameIndex());  //每一帧画之前都要更新constantbuffer的数据，cb就是更新完了当前帧要穿进来的MVP矩阵
+		core->getCommandList()->SetGraphicsRootConstantBufferView(  //把constantbuffer绑定到根参数0上,那么shader里面必须通过b0来访问这个，并且只能是VS访问，不是PS访问，因为旋转时间矩阵只在VS里面用到
+            0,
+            constantBuffer.getGPUAddress(core->frameIndex())
+        );
+
+		psos.bind(core, "Plane");  //然后绑定Plane的pso
+        mesh.draw(core);
+    }
+};
 class Material  //一个material类对象就是创建一个新的pso,这个单一实例应该被对象以指针来共享使用，其实我metarial也就干了一件事就是加载shader并创建pso，然后提供bind函数来绑定这个pso
 {
 public:
@@ -1286,8 +1286,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     Window win(GetModuleHandle(NULL), "MyWindowClass", "Hello", 1024, 736, WndProc);
     Core core;
     core.init(win.hwnd, 1024, 736);
-	//Plane plane;
-	//plane.init(&core);  //初始化平面网格
+	Plane plane;
+	plane.init(&core);  //初始化平面网格
  //   Cube cube;
 	//cube.init(&core);  //初始化立方体网格
 	//Sphere sphere;
@@ -1332,10 +1332,14 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     //animatedModel.load(&core, "Models/TRex.gem", &psos, &shaders);  //这里是加载了一个带动画的模型
     //AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
     //animatedInstance.init(&animatedModel.animation, 0);
+    Material BaseMaterial;
+    BaseMaterial.LoadShaders(&core,"VertexShader.hlsl","PixelShader.hlsl","BasePSO");
+    Model PlaneModel;
+
 	Camera camera;
-	static int Xmid = win.WindowWidth / 2;  //鼠标位于中心位置时的X坐标
-	win.mousex = Xmid;  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
-	int lastmousex = Xmid;
+	//static int Xmid = win.WindowWidth / 2;  //鼠标位于中心位置时的X坐标
+	//win.mousex = Xmid;  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
+	int lastmousex = win.mousex;//用刚进来时候的真实位置初始化
     while (true)
     {
         float dt = timer.dt();
@@ -1344,8 +1348,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         if (win.keys[VK_ESCAPE]) break;
 		Vec3 from = Vec3(11 * cos(t), 5, 11 * sinf(t));  // 相机位置绕Y轴旋转
 		//注意这里有个大问题，两个int相除会变成整数除法，会计算除float之后强制截断，所以要把其中一个强制转化为float类型然后相除才能保留为float类型
-        //constBufferMVP.W = Matrix();
-        //constBufferMVP.VP = Matrix::ProjectionMatrix(90.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f) * Matrix::Lookat(from, target, up);  //按照我的写法，矩阵放右边的是先右乘的，每一帧进来这个t都要,一定要有长宽比
+        
 		int dx = win.mousex - lastmousex;  //计算鼠标相对于中心位置的偏移量
 		lastmousex = win.mousex;  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
         camera.updateCameraPosition(win,dt,dx);
@@ -1372,7 +1375,9 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		//cube.draw(&core, &constBufferMVP,0);     // 再录制 draw
         //constBufferMVP.W = Matrix::translation(Vec3(5.0f, 0.0f, 0.0f)); //把立方体平移5个单位
         //constBufferMVP.W = Matrix::Translation(Vec3(5.0f, 0, 0));
-		//plane.draw(&core, &constBufferMVP);     // 再录制 draw
+        constBufferMVP.W = Matrix::ScaleMatrix(Vec3(10.f,10.f,10.f));
+        constBufferMVP.VP = vp;  //按照我的写法，矩阵放右边的是先右乘的，每一
+		plane.draw(&core, &constBufferMVP);     // 再录制 draw
 		//sphere.draw(&core, &constBufferMVP);     // 再录制 draw
         //triangle.draw(&core, &constBufferCPU);     // 再录制 draw
        // cube.draw(&core, &constBufferMVP,1);  //这里相当于每次更新cb时放到了两个不同的槽位，让GPU异步渲染也可以用
