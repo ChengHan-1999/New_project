@@ -307,7 +307,7 @@ public:
 		D3D12_CPU_DESCRIPTOR_HANDLE renderTargetViewHandle = backbufferHeap->GetCPUDescriptorHandleForHeapStart();
 		unsigned int renderTargetViewDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 		renderTargetViewHandle.ptr += frameIndex * renderTargetViewDescriptorSize;
-
+		resetCommandList();
 		Barrier::add(backbuffers[frameIndex], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET, getCommandList());
 		getCommandList()->OMSetRenderTargets(1, &renderTargetViewHandle, FALSE, &dsvHandle);
 		float color[4];                    // colour of screen, currently blue
@@ -317,7 +317,6 @@ public:
 		color[3] = 1.0;
 		getCommandList()->ClearRenderTargetView(renderTargetViewHandle, color, 0, NULL);
 		getCommandList()->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
-		beginRenderPass();//外层没有啊，我这里可以调用啊
 	}
 
 
@@ -384,12 +383,17 @@ public:
 	// Functionality to set common draw functionality
 	void beginRenderPass()
 	{
+		unsigned int frameIndex = swapchain->GetCurrentBackBufferIndex();
 		getCommandList()->RSSetViewports(1, &viewport);
 		getCommandList()->RSSetScissorRects(1, &scissorRect);
 		getCommandList()->SetGraphicsRootSignature(rootSignature);
 	}
 
-
+	//void flushGraphicsQueue()
+	//{
+	//	graphicsQueueFence[0].signal(graphicsQueue);
+	//	graphicsQueueFence[0].wait();
+	//}
 	
 
 };

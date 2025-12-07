@@ -81,6 +81,11 @@ public:
 		v[2] -= pVec.v[2];
 		return *this;
 	};
+	Vec3 operator-() const  //成员函数重载是允许重载一元运算符的，这个时候不需要传递任何参数，直接作用于自己本身，相当于放在自己obj的前面
+	{
+		// 直接使用 *this 的 x, y, z
+		return Vec3(-x, -y, -z);
+	}
 	Vec3 operator- (const Vec3& pVec) const {
 		return Vec3(v[0] - pVec.v[0], v[1] - pVec.v[1], v[2] - pVec.v[2]);
 	}
@@ -437,7 +442,7 @@ public:
 		ret.m[4] = sin; ret.m[5] = cin;
 		return ret;
 	}
-	static Matrix translation(const Vec3& t)
+	static Matrix translation(const Vec3& t)  //这个就是我的平移矩阵
 	{
 		Matrix result;                     // 默认构造应该是单位矩阵
 		result.m[3] = t.x;                // 第一行末列 = X平移

@@ -12,47 +12,28 @@
 class Camera
 {
 public:
-	Vec3 camaraposition{ 0.f,10.f,-6.f };  //这是类初始化位置
+	Vec3 Offset{ 0.f,10.f,-6.f };
+	Vec3 camaraposition;  //如果要在类中初始化类成员对象，就用初始化列表
+	//这是类初始化位置  //花括号是列表初始化 ，，你在一个类中初始化一个类对象？？这是不允许的因为类中只允许两种存在成员和方法，基本类型可以直接初始化，但是类成员不行，因为括号会被自动解析为函数
 	float yaw = 0.0f;  //我这个应该是绕y轴旋转角度把
-	float cameraspeed = 1.f;
+	
 	float cameraanglespeed = 0.0019428f;  //这个就是相机的映射比例
 	const float MAX_YAW_RAD = M_PI / 3.0f;
 	Matrix getViewMatrix(const Vec3& heroposition)
 	{
+		camaraposition = heroposition + Offset;  //相机的位置应该等于英雄位置减去偏移量  ，由于每帧heropositiuon都不一样所以这个也不一样
 		Vec3 forward(
 			sinf(yaw),
 			0,
-			cosf(yaw)
-		);  //这个用来表示相机旋转时自己位置的偏移量
-
-		return Matrix::RotationMatrixY(yaw) * Matrix::Lookat(camaraposition, heroposition + Vec3(0,0,5), Vec3(0, 1, 0));  //这个就是初始的视图矩阵
+			cosf(yaw)  //其实这是直接调用构造函数来进行初始化
+		);  //这个用来表示相机旋转时自己位置的偏移量，这里为什么要在方法类声明forward是因为每次调用的时候，forward的值必须用最新值，如果你要保证最新值，你还要把yaw作为最新参数传进来
+		//Matrix::RotationMatrixY(yaw)
+		return  Matrix::Lookat(camaraposition, heroposition + Vec3(0,0,5), Vec3(0, 1, 0));  //这个就是初始的视图矩阵
 		//Matrix::Lookat(camaraposition, heroposition + forward, Vec3(0, 1, 0));  //这个就是初始的视图矩阵
 	}
 	void updateCameraPosition(const Window& canvas, float deltaTime,float dx)
 	{
-		Vec3 forward(  //当yaw为0的时候，forward就是指向正z轴方向的  ，，所以forward就是一个表示前进方向的单位向量
-			sinf(yaw),
-			0,
-			cosf(yaw)
-		);  //这个用来表示相机旋转时自己位置的偏移量
-		Vec3 right = Vec3(0, 1, 0).Cross(forward).normalize();  //右方向向量,为什么这么写是因为d3d12是左手坐标系，摄像机的forward方向是正z轴方向
-		if (canvas.keys['W'])  //前进
-		{
-			camaraposition += forward * cameraspeed * deltaTime;  //前进的方向是forward方向  * 速度 * 帧间隔时间
-		}
-		else if (canvas.keys['S'])  //后退
-		{
-			camaraposition -= forward * cameraspeed * deltaTime;
-		}
-		else if (canvas.keys['A'])  //左移
-		{
-			camaraposition -= right * cameraspeed * deltaTime;
-		}
-		else if (canvas.keys['D'])  //右移
-		{
-			camaraposition += right * cameraspeed * deltaTime;
-		}
-		//在相机中我们需要人为规定一个映射比例，来表示在屏幕上鼠标移动的像素距离对应于相机旋转的角度变化
+		
 		
 		yaw += dx * cameraanglespeed;  //这里的dx是鼠标在x轴上的移动距离，乘以一个角速度和时间间隔，得到新的yaw角度
 		yaw = clamp<float>(yaw, -MAX_YAW_RAD, MAX_YAW_RAD);

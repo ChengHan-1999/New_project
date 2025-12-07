@@ -811,8 +811,8 @@ public:
 	//ConstantBuffer cbBones;// 这个是用来工薪骨骼矩阵的cb
 	Matrix worldMatrix;  //每个渲染对象都有自己的世界矩阵,VP矩阵好像不需要存储在这里，因为每个对象的VP矩阵都是一样的，V矩阵是相机类自己定的，可以在实例化这个对象的时候传入初始位置
 	AnimationInstance* animationInstance = nullptr;  //每个渲染对象都有自己的动画实例数据，这样就可以实现同一个动画模型被多个对象实例化使用，并且每个对象实例有自己的动画播放状态,这个也应该是指针
-    void init(Core* core,Model* TreeModel,Material* TreeMaterial,bool isanimated) {
-        
+    void init(Core* core,Model* TreeModel,Material* TreeMaterial,bool isanimated,const Matrix& worldpositon) {
+        worldMatrix = worldpositon;
         if (isanimated)
         {
             cb.init(core, sizeof(ConstantBufferStruct_Animation), 2); //初始化骨骼矩阵的cb  //但是没有这个结构，但是我知道矩阵大小，把这个放到槽位1去让shader访问
@@ -1278,14 +1278,18 @@ struct ConstantBufferVariable
 //        }
 //    }
 //};
+#define WIDTH 1920
+#define HEIGHT 1080
 int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR lpCmdLine, int nCmdShow)
 
 {
     //Triangle1 triangle;
-    Window win(GetModuleHandle(NULL), "MyWindowClass", "Hello", 1024, 736, WndProc);
+    /*Window win(GetModuleHandle(NULL), "MyWindowClass", "Hello", 1024, 736, WndProc);*/
+    Window win;
+    win.create(WIDTH, HEIGHT, "My Window");
     Core core;
-    core.init(win.hwnd, 1024, 736);
+    core.init(win.hwnd, WIDTH, HEIGHT);
 	Plane plane;
 	plane.init(&core);  //初始化平面网格
  //   Cube cube;
@@ -1323,7 +1327,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
     animatedInstance.init(&animatedModel.animation, 0);
 	RenderObject dinosaur;  //创建一个动画模型对象实例
-	dinosaur.init(&core,&animatedModel, &animateMaterial, true);  //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
+	dinosaur.init(&core,&animatedModel, &animateMaterial, true, Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)));  //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
+
     dinosaur.animationInstance = &animatedInstance;
     //Shaders shaders;
     //PSOManager psos;
@@ -1337,25 +1342,35 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     Model PlaneModel;
 
 	Camera camera;
+    float cameraspeed = 10.f;
 	//static int Xmid = win.WindowWidth / 2;  //鼠标位于中心位置时的X坐标
 	//win.mousex = Xmid;  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
 	int lastmousex = win.mousex;//用刚进来时候的真实位置初始化
+
     while (true)
     {
         float dt = timer.dt();
 		t += dt;  //累加这个t变量，然后再每帧重新算矩阵位置
-        win.processMessages();
+        core.beginFrame();
+        //win.processMessages();
+        win.checkInput();
         if (win.keys[VK_ESCAPE]) break;
+        core.beginRenderPass();
 		Vec3 from = Vec3(11 * cos(t), 5, 11 * sinf(t));  // 相机位置绕Y轴旋转
 		//注意这里有个大问题，两个int相除会变成整数除法，会计算除float之后强制截断，所以要把其中一个强制转化为float类型然后相除才能保留为float类型
         
 		int dx = win.mousex - lastmousex;  //计算鼠标相对于中心位置的偏移量
 		lastmousex = win.mousex;  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
-        camera.updateCameraPosition(win,dt,dx);
-        Matrix vp =  camera.getViewMatrix(Vec3(0,1,0))* Matrix::ProjectionMatrix(90.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f);
+        camera.updateCameraPosition(win,dt,dx);  //worldmatrix的本质是什么，是这个对象的换
+        Vec3 dinosaurPos(
+            dinosaur.worldMatrix.m[3],
+            dinosaur.worldMatrix.m[7],
+            dinosaur.worldMatrix.m[11]
+        );
+        Matrix vp =  camera.getViewMatrix(dinosaurPos)* Matrix::ProjectionMatrix(90.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f);
 		//我现在来总结一下我的矩阵，现在的A * B是正确的顺序，但是只能是在C++端满足，所以C++端所有的处理是右乘列向量，但是HLSL是左乘行向量的，所以在HLSL更新的矩阵要把矩阵乘的顺序颠倒
-        core.resetCommandList();  // 先 reset
-        core.beginFrame();        // 再录制 clear / barrier 等
+        //core.resetCommandList();  // 先 reset
+               // 再录制 clear / barrier 等
         animatedInstance.update("run", dt);
         if (animatedInstance.animationFinished() == true)
         {
@@ -1365,10 +1380,38 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
         //Matrix W = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
         //animatedModel.draw(&core, &psos, &shaders, &animatedInstance, vp, W);
-		dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小
+		//dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小,但是这里有问题，因为你一进来之后，每次循环都重新把worldtrix置灰原值
 		dinosaur.updateCB(&core, vp);  //更新恐龙实例的constantbuffer  //里面的骨骼矩阵cb也会被更新但是不用自己传进去
 		dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
+        Vec3 forward(0.f, 0.f, 1.f);
+        Vec3 right = Vec3(0, 1, 0).Cross(forward).normalize();  //右方向向量,为什么这么写是因为d3d12是左手坐标系，摄像机的forward方向是正z轴方向
+        int acheck = 1;
+        if (win.keyPressed('W'))  //前进
+        { //由于hlsl的相反乘法，导致我在写变换顺序的时候正好是左边的先开始变换
+            acheck = 2;
+            Matrix movematrix = Matrix::translation(Vec3(forward * dt * cameraspeed));
+            dinosaur.worldMatrix = dinosaur.worldMatrix * movematrix;  //前进的方向是forward方向  * 速度 * 帧间隔时间  //其实所有的移动都是通过平移变换矩阵实现的！所有的运动都可以拆成旋转，平移矩阵的叠合
+        }
+
+        else if (win.keyPressed('S'))  //后退
+        {
+            //camaraposition -= forward * cameraspeed * deltaTime;
+            dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-forward * dt * cameraspeed));
+        }
+        else if (win.keyPressed('A'))  //左移
+        {
+            //camaraposition -= right * cameraspeed * deltaTime;
+            dinosaur.worldMatrix =   dinosaur.worldMatrix * Matrix::translation(Vec3(right * dt * cameraspeed));
+        }
+        else if (win.keyPressed('D'))  //右移
+        {
+            //camaraposition += right * cameraspeed * deltaTime;
+           dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-right * dt * cameraspeed));  //因为hlsl是反的，所以所有变换矩阵，涉及到变换顺序的都要反过来
+        }
+        
 		dinosaur.draw(&core);  //画恐龙模型
+        
+        //在相机中我们需要人为规定一个映射比例，来表示在屏幕上鼠标移动的像素距离对应于相机旋转的角度变化
         //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
         ////W = Matrix::scaling(Vec3(0.01f, 0.01f, 0.01f));
         //animatedModel.draw(&core, &psos, &shaders, &animatedInstance, vp, W);
