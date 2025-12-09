@@ -50,7 +50,39 @@ public:
 		commandList->ResourceBarrier(1, &rb);
 	}
 };
+class DescriptorHeap
+{
+public:
+	//GPU需要保存每个纹理，所以需要有专门存放的heap
+	ID3D12DescriptorHeap* heap;
+	D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+	D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+	unsigned int incrementSize;
+	int used;
+	void init(ID3D12Device5* device, int num)
+	{
+		D3D12_DESCRIPTOR_HEAP_DESC uavcbvHeapDesc = {};
+		uavcbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+		uavcbvHeapDesc.NumDescriptors = num;
+		uavcbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+		device->CreateDescriptorHeap(&uavcbvHeapDesc, IID_PPV_ARGS(&heap));
+		cpuHandle = heap->GetCPUDescriptorHandleForHeapStart();
+		gpuHandle = heap->GetGPUDescriptorHandleForHeapStart();
+		incrementSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		used = 0;
+	}
+	D3D12_CPU_DESCRIPTOR_HANDLE getNextCPUHandle()
+	{
+		if (used > 0)
+		{
+			cpuHandle.ptr += incrementSize;
+		}
+		used++;
+		return cpuHandle;
+	}
 
+
+};
 class Core
 {
 public:
@@ -85,7 +117,7 @@ public:
 
 	// Root signature
 	ID3D12RootSignature* rootSignature;
-
+	DescriptorHeap srvHeap;
 
 
 	void init(HWND hwnd, int _width, int _height)     // handle to window and width and height of window
@@ -249,6 +281,34 @@ public:
 		rootParameterCBPS.Descriptor.RegisterSpace = 0;
 		rootParameterCBPS.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 		parameters.push_back(rootParameterCBPS);
+	
+		
+		D3D12_DESCRIPTOR_RANGE srvRange = {};
+		srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+		srvRange.NumDescriptors = 8; // number of SRVs (t0–t7)
+		srvRange.BaseShaderRegister = 0; // starting at t0
+		srvRange.RegisterSpace = 0;
+		srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+		D3D12_ROOT_PARAMETER rootParameterTex;
+		rootParameterTex.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		rootParameterTex.DescriptorTable.NumDescriptorRanges = 1;
+		rootParameterTex.DescriptorTable.pDescriptorRanges = &srvRange;
+		rootParameterTex.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+		parameters.push_back(rootParameterTex);
+		D3D12_STATIC_SAMPLER_DESC staticSampler = {};
+		staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+		staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+		staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+		staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+		staticSampler.MipLODBias = 0;
+		staticSampler.MaxAnisotropy = 1;
+		staticSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+		staticSampler.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+		staticSampler.MinLOD = 0.0f;
+		staticSampler.MaxLOD = D3D12_FLOAT32_MAX;
+		staticSampler.ShaderRegister = 0;
+		staticSampler.RegisterSpace = 0;
+		staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 		// Create Root Signature
 		D3D12_ROOT_SIGNATURE_DESC desc = {};
 		desc.NumParameters = parameters.size();
@@ -256,12 +316,15 @@ public:
 		desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 		ID3DBlob* serialized;
 		ID3DBlob* error;
+		desc.NumStaticSamplers = 1;
+		desc.pStaticSamplers = &staticSampler;
+		srvHeap.init(device, 16384);  //需要有那个类
+
 		D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &error);
 		device->CreateRootSignature(0, serialized->GetBufferPointer(), serialized->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
 		serialized->Release();
-
-
 		factory->Release();
+		
 	}
 
 	// ensures all work is completed before mobing on
@@ -387,6 +450,8 @@ public:
 		getCommandList()->RSSetViewports(1, &viewport);
 		getCommandList()->RSSetScissorRects(1, &scissorRect);
 		getCommandList()->SetGraphicsRootSignature(rootSignature);
+		getCommandList()->SetDescriptorHeaps(1, &srvHeap.heap);  //应该在最初的时候运行一侧
+
 	}
 
 	//void flushGraphicsQueue()

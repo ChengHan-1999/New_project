@@ -12,6 +12,7 @@ public:
 
 	void createPSO(Core* core, std::string name, ID3DBlob* vs, ID3DBlob* ps, D3D12_INPUT_LAYOUT_DESC layout)
 	{
+		//psos是一个map，这里传进来的name是pso的名字，vs是顶点着色器，ps是像素着色器，layout是顶点布局描述符，createpso后会直接存储在psos里，然后通过pso的名字就可以实现pso的切换，但是我应该load的时候就创建好pso，但是不应该绑定pso？
 		// Avoid creating extra state
 		if (psos.find(name) != psos.end())
 		{
@@ -40,14 +41,7 @@ public:
 		rasterDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 		desc.RasterizerState = rasterDesc;
 
-		// Responsible for configuring the depth buffer
-		D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-		depthStencilDesc.DepthEnable = TRUE;
-		depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-		depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
-		depthStencilDesc.StencilEnable = FALSE;
-		desc.DepthStencilState = depthStencilDesc;
-
+		
 
 		D3D12_BLEND_DESC blendDesc = {};
 		blendDesc.AlphaToCoverageEnable = FALSE;
@@ -67,6 +61,13 @@ public:
 		}
 
 		desc.BlendState = blendDesc;
+		// Responsible for configuring the depth buffer
+		D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
+		depthStencilDesc.DepthEnable = TRUE;
+		depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+		depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+		depthStencilDesc.StencilEnable = FALSE;
+		desc.DepthStencilState = depthStencilDesc;
 
 		// Render state
 		desc.SampleMask = UINT_MAX;
@@ -88,11 +89,17 @@ public:
 		// Insert into map
 		psos.insert({ name, pso });
 
-	}
+	}  //
 
 	void bind(Core* core, std::string name)
 	{
 		core->getCommandList()->SetPipelineState(psos[name]);
 	}
-
+	~PSOManager()
+	{
+		for (auto& pso : psos)
+		{
+			pso.second->Release();
+		}
+	}
 };

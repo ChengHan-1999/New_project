@@ -11,6 +11,7 @@
 #include"GEMLoader.h"
 #include"Animation.h"
 #include"Camera.h"
+#include"Texture.h"
 struct PRIM_VERTEX  //这个是顶点结构体，用来存放顶点数据
 {
     Vec3 position;
@@ -678,7 +679,7 @@ class Material  //一个material类对象就是创建一个新的pso,这个单�
 public:
     ID3DBlob* vertexShader;  //我这个material类中就包含了我要的shader，其实我这就是一个shader类，只不过是我没有shasdermanager
     ID3DBlob* pixelShader;
-	PSOManager psos;
+	PSOManager psos;  //我竟然是在material里面包含？psos应该是全局调用吧，你怎么能再这里调用呢？
     //是不是应该包含一个这个mateiral自己对应的pso名称？
     std::string psoname;
     public:
@@ -731,22 +732,33 @@ class Model //在我的model里是没有包含draw方法的，它只负责加载
 {
 public:
     std::vector<Mesh*> meshes;
+    std::vector<std::string> textureFilenames;  //这里要的是纹理的文件名，不是纹理名
+    TextureManager* texmanager;
+    std::vector<int> textureHeapOffsets;  //我也可以直接存，因为mesh存入的顺序是固定的，所以我遍历mesh的时候就是按照一样的顺序取heapoffsets
     virtual void load(Core* core, const std::string& filename) {  //这是加载了该物体的mesh的形状数据，相当于这是一个Tree的程序化生成器
         GEMLoader::GEMModelLoader loader;
         std::vector<GEMLoader::GEMMesh> gemmeshes;
         loader.load(filename, gemmeshes);
         for (int i = 0; i < gemmeshes.size(); i++) {
             Mesh* mesh = new Mesh();
+            //Texture* texture = new Texture();
             std::vector<STATIC_VERTEX> vertices;
             for (int j = 0; j < gemmeshes[i].verticesStatic.size(); j++) {
                 STATIC_VERTEX v;
                 memcpy(&v, &gemmeshes[i].verticesStatic[j], sizeof(STATIC_VERTEX));
                 vertices.push_back(v);
-            }
+            }  //重复的push是很正常的，所以实际上这里还是压入了每一个mesh的名称
+            textureFilenames.push_back(gemmeshes[i].material.find("albedo").getValue());  //读取mesh的材质数据，mesh里面应该是写了要用什么材质的，这个纹理有一个文件名就是getvalue，albedo是纹理的名字？那字符串路径应该是规定好了的
+            //一个model有多个mesh，每个mesh有自己的材质，每个材质有自己的贴图
+            //texture->upload(core, gemmeshes[i].material.find("albedo").getValue());  //直接上传到GPU，但是我这里要用mnanager来管理，所以我就在最后便利vector，并且用manager.
             mesh->init(core, vertices, gemmeshes[i].indices);
             meshes.push_back(mesh);
         }
-
+        for (size_t i = 0; i < textureFilenames.size(); i++)//遍历整个vector，然后加载数据
+        {
+            textureHeapOffsets.push_back(texmanager->load(core, textureFilenames[i]));  //检查并加载当前第i个文件名  ，每一个实例化的tex都有自己的heapoffset，那我的mesh就必须和tex有对应关系才能知道heapoffest，或者直接建立mesh和offset的关系
+            
+        }
     }
 };
 class AnimationMaterial:public Material
@@ -759,10 +771,10 @@ public:
         buffer << file.rdbuf();
         return buffer.str();
     }
-    void LoadShaders(Core* core, std::string VSname, std::string PSname, std::string _psoname)  //防止硬编码所以我传shader文件进来读
+    void LoadShaders(Core* core, std::string VSname, std::string PSname, std::string _psoname,TextureManager& texmanager)  //防止硬编码所以我传shader文件进来读，为了反射我必须要传对应的资源名
     {
         // Compile Vertex shader
-        psoname = _psoname;  //把pso名字存储下来
+        psoname = _psoname;  //把pso名字存储下来，用于后面的切换
         std::string vsSource = ReadFile(VSname);
 
         ID3DBlob* status;
@@ -792,14 +804,22 @@ public:
                 OutputDebugStringA((char*)status->GetBufferPointer());
             return;
         }
-        psos.createPSO(core, _psoname, vertexShader, pixelShader, VertexLayoutCache::getAnimatedLayout());  //创建pso,并取名为Plane
-
+        ID3D12ShaderReflection* reflectionPS;
+        D3DReflect(pixelShader->GetBufferPointer(),
+            pixelShader->GetBufferSize(),
+            IID_PPV_ARGS(&reflectionPS));
+        D3D12_SHADER_DESC descPS;
+        reflectionPS->GetDesc(&descPS);
+        texmanager.loadreflection(reflectionPS,descPS);
+		reflectionPS->Release();//释放反射接口,不然会泄露
+        psos.createPSO(core, _psoname, vertexShader, pixelShader, VertexLayoutCache::getAnimatedLayout());  //创建pso,并取名为Plane，其实这里在干的事情就是加载了一个物体类型所需要的pso，以及其shader
+		//确实创造了一个pso，但是我如果要调用bind的话，还需要知道pso的名字
 
     }
-    void bind(Core* core)
+    void bind(Core* core)  //我的bind竟然写在了loadshaders里面？
     {
-        psos.bind(core, psoname);  //这里写一个bind函数来绑定这个材质对应的pso，只要你穿pso名字就行
-    }
+		psos.bind(core, psoname);  //这里写一个bind函数来绑定这个材质对应的pso，只要你穿pso名字就行，所以我的每一个material实例都保存了当前材质对应的pso名字
+    }  //我为甚要把bhind放这呢？
 };
 
 class RenderObject{  //如果这个时treemodle，那么这个里面就需要包含多个mesh，一个模型可能有多个mesh  ,每一个需要渲染的对象都是RenderObject的实例，只不过构成它的model和material是可以自己组合的！
@@ -811,7 +831,7 @@ public:
 	//ConstantBuffer cbBones;// 这个是用来工薪骨骼矩阵的cb
 	Matrix worldMatrix;  //每个渲染对象都有自己的世界矩阵,VP矩阵好像不需要存储在这里，因为每个对象的VP矩阵都是一样的，V矩阵是相机类自己定的，可以在实例化这个对象的时候传入初始位置
 	AnimationInstance* animationInstance = nullptr;  //每个渲染对象都有自己的动画实例数据，这样就可以实现同一个动画模型被多个对象实例化使用，并且每个对象实例有自己的动画播放状态,这个也应该是指针
-    void init(Core* core,Model* TreeModel,Material* TreeMaterial,bool isanimated,const Matrix& worldpositon) {
+	void init(Core* core, Model* TreeModel, Material* TreeMaterial, bool isanimated, const Matrix& worldpositon) {//我传一个meterial进来的目的是为了bind？那我为什么不直接用psos指针的bind呢
         worldMatrix = worldpositon;
         if (isanimated)
         {
@@ -866,17 +886,26 @@ public:
 
     }
 	void draw(Core* core) {  //我先纯绘制吧，后面再考虑材质，draw是放在了model里面的
-        for (Mesh* m : model->meshes) {
-            m->draw(core);
-
+        for (int i = 0; i < model->meshes.size(); i++)
+        {
+            //model->texmanager->updateTexturePS(core, "albedo", )
+            //    m->draw(core);
+			material->bind(core);  //绑定这个renderobject对应的材质的pso  ,我每个renderobject都有自己的material指针，meterial里面包含了这个材质对应的pso管线名称
+            model->texmanager->updateTexturePS(core, "tex", model->texmanager->find(model->textureFilenames[i])); //我严重怀疑是这里出了问题，就是我的texture着色器穿错了，而且这里必须我传进去的资源名称
+			model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
         }
+        //for (Mesh* m : model->meshes) {
+        //    model->texmanager->updateTexturePS(core, "albedo",)
+        //    m->draw(core);
+
+        //}
     }//,ConstantBufferStruct_MVP* cb
 };
 class AnimatedModel:public Model  //这种model既包含mesh数据，又包含动画数据，所以可以直接实例化出一个动画模型对象，也可以用来做程序化生成器
 {
 public:
     Animation animation;  //得到这个模型的动画数据
-    std::vector<std::string> textureFilenames;
+    //std::vector<std::string> textureFilenames;
 	void load(Core* core, std::string filename)  //这是加载了该物体的mesh的形状数据和动画数据，相当于这是一个AnimatedModel的程序化生成器，
     {
         GEMLoader::GEMModelLoader loader;
@@ -913,7 +942,12 @@ public:
 				//memcpy(&v, &gemmeshes[i].verticesAnimated[j], sizeof(ANIMATED_VERTEX));  //memcpy只管按字节复制，如果结构体内成员类型不一样，会出问题，所以这里要保证两个结构体成员类型和顺序完全一样才行
     //            vertices.push_back(v);
             }
-            mesh->init(core, vertices, gemmeshes[i].indices); //
+            auto stringname = gemmeshes[i].material.find("albedo").getValue();  //这里加载出来了正确的文件夹的名称，就是xxxx_alb.png
+			texmanager->load(core, stringname);  //直接加载纹理到GPU中去
+			textureFilenames.push_back(stringname);  //把纹理文件名存储到vector里面去，每一个i对应的mesh都有对应的纹理文件名
+			//auto heapoffset =  texmanager->load(core, stringname);  //直接加载纹理到GPU中去,不在后面遍历加载了，因为我这里每个mesh都有自己的纹理，所以我直接在这里加载就行了
+            //textureHeapOffsets.push_back(heapoffset);
+            mesh->init(core, vertices, gemmeshes[i].indices); //wokao,zhegezhijinlyici
             meshes.push_back(mesh);
         }
         memcpy(&animation.skeleton.globalInverse, &gemanimation.globalInverse, 16 * sizeof(float));
@@ -951,23 +985,41 @@ public:
             animation.animations.insert({ name, aseq });
         }
     }
-	//void updateWorld(Shaders* shaders, Matrix& w)  //这个函数用来每帧更新world矩阵
- //   {
- //       shaders->updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "W", &w); //不是那你下面为啥还绑定一个一模一样的
- //   }
- //   void draw(Core* core, PSOManager* psos, Shaders* shaders, AnimationInstance* instance, Matrix& vp, Matrix& w)
- //   {
- //       psos->bind(core, "AnimatedModelPSO");
- //       shaders->updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "W", &w);
- //       shaders->updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
- //       shaders->updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "bones", instance->matrices);
- //       shaders->apply(core, "AnimatedUntextured");
- //       for (int i = 0; i < meshes.size(); i++)
- //       {
- //           meshes[i]->draw(core);
- //       }
- //   }
 };
+class ModelManager  //这个类用来管理所有已经加载过的模型数据
+{//这个对象设置单例之前要确保有一个纹理管理器存在，因为模型加载时会用到纹理管理器来加载纹理，因为model里面加载mesh的时候需要同时将mesh用到的纹理加载到GPU中去
+public:
+    std::map<std::string, Model*> models;  //模型名称对应模型指针  
+    TextureManager* texmanager;  //模型管理器里面包含一个纹理管理器指针，因为模型加载时会用到纹理管理器来加载纹理
+	Model* loadModel(Core* core, const std::string& filename, const std::string& modelname,bool isanimated)  //这个函数用来加载模型数据，并返回模型指针，第二个是文件名,第一次加载模型时可以当作加载并返回模型指针，后续获取已经加载过的模型时调用getModel函数
+    {
+		Model* model;  //如果不存在，就创建一个新的模型指针
+        if (isanimated)
+        {
+            AnimatedModel* animatedModel = new AnimatedModel();
+            animatedModel->texmanager = texmanager;  //把纹理管理器指针传递给动画模型
+            animatedModel->load(core, filename);
+            model = animatedModel;
+        }
+        else
+        {
+            model = new Model();
+            model->texmanager = texmanager;  //把纹理管理器指针传递给模型
+            model->load(core, filename);
+        }
+        models[modelname] = model;  //把新加载的模型存储到map中
+		return model;  //加载完毕，返回模型指针，并且map中已经存储了该模型
+	}
+    Model* getModel(const std::string& modelname)  //这个函数用来获取已经加载过的模型指针
+    {
+        if (models.find(modelname) != models.end())
+        {
+            return models[modelname];
+        }
+        return nullptr;  //如果模型不存在，返回空指针
+	}
+};
+
 struct ConstantBufferVariable
 {
     unsigned int offset;
@@ -1308,7 +1360,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     //constBufferCPU.time = 0;
     GamesEngineeringBase::Timer timer;
     // 每帧更新
-
+    TextureManager texmanager;
     Vec3 target = Vec3(0, 0, 0); // 看向平面中心
     Vec3 up = Vec3(0, 1, 0);
     //Material material_tree;  //我既然有个问题，为什么我后面都要用你的指针你为什么要用实力对象资源
@@ -1320,14 +1372,19 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	//tree_2.init(&core, treeModel, &material_tree);  //第二个树对象也用同一个model和material
 	//tree.load(&core, "acacia_003.gem");  //加载树模型，因为同在一个目录所以直接写文件名，这是完成了mesh加载
     //tree.material = &material_1;
-    AnimatedModel animatedModel;
+	AnimatedModel animatedModel;  //我这里是创建了一个动画模型对象，然后通过load函数加载模型和动画数据，然后我又要让renderobject来引用这个animatedmodel对象，那我为什么不直接让renderobject来load呢
+	animatedModel.texmanager = &texmanager; //我应该先建立指针引用再load
 	animatedModel.load(&core, "Models/TRex.gem");  //加载动画模型
-	AnimationMaterial animateMaterial;
-	animateMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/VSAnim.txt", "C:/Lesson/New_project/New_project/PSUntextured.txt", "AnimatedModelPSO");  //加载动画模型的材质
+	ModelManager modelmanager;
+	modelmanager.texmanager = &texmanager;  //把纹理管理器指针传递给模型管理器
+	modelmanager.loadModel(&core, "Models/TRex.gem", "dinosaur", true);  //通过模型管理器加载动画模型
+	AnimationMaterial animateMaterial; //如果我断点打在这一行代表还没有进入这一行执行，前面行的内容已经执行完了，在执行这一行之前暂停
+	//animateMaterial.texmanager = &texmanager;
+	animateMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/VSAnim.txt", "C:/Lesson/New_project/New_project/TextureShader.txt", "AnimatedModelPSO",texmanager);  //加载动画模型的材质，肯定要包含psos
     AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
     animatedInstance.init(&animatedModel.animation, 0);
 	RenderObject dinosaur;  //创建一个动画模型对象实例
-	dinosaur.init(&core,&animatedModel, &animateMaterial, true, Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)));  //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
+	dinosaur.init(&core,modelmanager.getModel("dinosaur"), &animateMaterial, true, Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f))); //还有初始World变化矩阵 //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
 
     dinosaur.animationInstance = &animatedInstance;
     //Shaders shaders;
@@ -1371,7 +1428,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		//我现在来总结一下我的矩阵，现在的A * B是正确的顺序，但是只能是在C++端满足，所以C++端所有的处理是右乘列向量，但是HLSL是左乘行向量的，所以在HLSL更新的矩阵要把矩阵乘的顺序颠倒
         //core.resetCommandList();  // 先 reset
                // 再录制 clear / barrier 等
-        animatedInstance.update("run", dt);
+        animatedInstance.update("roar", dt);
         if (animatedInstance.animationFinished() == true)
         {
             animatedInstance.resetAnimationTime();
@@ -1383,6 +1440,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		//dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小,但是这里有问题，因为你一进来之后，每次循环都重新把worldtrix置灰原值
 		dinosaur.updateCB(&core, vp);  //更新恐龙实例的constantbuffer  //里面的骨骼矩阵cb也会被更新但是不用自己传进去
 		dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
+        //texmanager.loadreflection();
+        
         Vec3 forward(0.f, 0.f, 1.f);
         Vec3 right = Vec3(0, 1, 0).Cross(forward).normalize();  //右方向向量,为什么这么写是因为d3d12是左手坐标系，摄像机的forward方向是正z轴方向
         int acheck = 1;

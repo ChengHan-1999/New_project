@@ -135,6 +135,7 @@
     <ClInclude Include="GEMLoader.h" />
     <ClInclude Include="New.h" />
     <ClInclude Include="PipeLine.h" />
+    <ClInclude Include="Texture.h" />
     <ClInclude Include="Window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

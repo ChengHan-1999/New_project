@@ -28,7 +28,7 @@ public:
 			cosf(yaw)  //其实这是直接调用构造函数来进行初始化
 		);  //这个用来表示相机旋转时自己位置的偏移量，这里为什么要在方法类声明forward是因为每次调用的时候，forward的值必须用最新值，如果你要保证最新值，你还要把yaw作为最新参数传进来
 		//Matrix::RotationMatrixY(yaw)
-		return  Matrix::Lookat(camaraposition, heroposition + Vec3(0,0,5), Vec3(0, 1, 0));  //这个就是初始的视图矩阵
+		return Matrix::RotationMatrixY(yaw) * Matrix::Lookat(camaraposition, heroposition + Vec3(0,0,5), Vec3(0, 1, 0));  //这个就是初始的视图矩阵
 		//Matrix::Lookat(camaraposition, heroposition + forward, Vec3(0, 1, 0));  //这个就是初始的视图矩阵
 	}
 	void updateCameraPosition(const Window& canvas, float deltaTime,float dx)
