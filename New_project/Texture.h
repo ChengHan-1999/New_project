@@ -220,7 +220,7 @@ void upload(Core* core, const void* data)  //使用已经存在的数据并且�
 	//	heapOffset = core->srvHeap.used - 1;
 	//	//delete[] data;  //释放load函数中分配的内存，这个不用自己来释放，再load里面释放掉
 	//}
-	void load(Core* core,const std::string& filename)  //把图像从文件读到CPU中
+	void load(Core* core,const std::string& filename)  //把图像从文件读到CPU中,这里只需要传入天空盒texture的
 	{
 		unsigned char* texels = stbi_load(filename.c_str(), &width, &height, &channels, 0);  //这里分配了一个内存，，这里确实是加载到了一个指针的
 		if (channels == 3) {
@@ -303,7 +303,7 @@ public:
 			}
 		}
 	}
-	void updateTexturePS(Core* core, std::string name, int heapOffset) {  //我这个不应该是textrue里面吗，但是
+	void updateTexturePS(Core* core, std::string name, int heapOffset) {  //我这个不应该是textrue里面吗，这个应该是我要得资源名称噢，不是文件名称
 		UINT bindPoint = textureBindPoints[name];  //只要输入绑定点名字就可以得到bindpoint	，他只是用来告诉根签名我是第几个绑定点，反射是成功了的
 		D3D12_GPU_DESCRIPTOR_HANDLE handle = core->srvHeap.gpuHandle;   //heapoffest是SRVheap中的实际索引？bindpoint是shader rigister索引
 		handle.ptr = handle.ptr + (UINT64)(heapOffset - bindPoint) * (UINT64)core->srvHeap.incrementSize; //先这样写，如果加载不出来再改！改成heapoffset * 后面那一坨

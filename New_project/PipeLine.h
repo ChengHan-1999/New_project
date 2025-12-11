@@ -29,7 +29,10 @@ public:
 		// Responsible for configuring the rasterizer
 		D3D12_RASTERIZER_DESC rasterDesc = {};
 		rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
+
 		rasterDesc.CullMode = D3D12_CULL_MODE_NONE;
+
+
 		rasterDesc.FrontCounterClockwise = FALSE;
 		rasterDesc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
 		rasterDesc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
@@ -63,9 +66,10 @@ public:
 		desc.BlendState = blendDesc;
 		// Responsible for configuring the depth buffer
 		D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-		depthStencilDesc.DepthEnable = TRUE;
-		depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-		depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+			depthStencilDesc.DepthEnable = TRUE;
+			depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+			depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+
 		depthStencilDesc.StencilEnable = FALSE;
 		desc.DepthStencilState = depthStencilDesc;
 
