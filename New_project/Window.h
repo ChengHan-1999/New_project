@@ -11,7 +11,7 @@ public:
 	HWND hwnd;
 	HINSTANCE hinstance;
 	std::string name;
-	int width;
+	int width;  //这是窗口的宽度
 	int height;
 	bool keys[256];
 	int mousex;
@@ -52,6 +52,17 @@ public:
 		p.x = p.x - rect.left;
 		p.x = p.x * invZoom;
 		return p.x;
+	}
+	void initmouse()
+	{
+		RECT rc;
+		GetClientRect(hwnd, &rc);   // rc 是 client 区，左上(0,0)，右下(width,height)
+
+		POINT center;
+		center.x = (rc.left + rc.right) / 2;
+		center.y = (rc.top + rc.bottom) / 2;
+		ClientToScreen(hwnd, &center);  //这里的center是已经经过转化的位置，不再表示窗口,而是表示屏幕坐标
+		SetCursorPos(center.x, center.y);  //把鼠标设置到窗口中心位置
 	}
 	int getMouseInWindowY()
 	{

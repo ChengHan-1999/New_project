@@ -1538,8 +1538,9 @@
         float cameraspeed = 10.f;
 	    //static int Xmid = win.WindowWidth / 2;  //鼠标位于中心位置时的X坐标
 	    //win.mousex = Xmid;  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
-	    int lastmousex = win.mousex;//用刚进来时候的真实位置初始化
-		int lastmousey = win.mousey;
+		win.initmouse();  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
+		int lastmousex = win.getMouseInWindowX();//用刚进来时候的把鼠标位置存下来，作为最初的上次鼠标位置，但是如果的鼠标一开始就不在中心位置的话会有问题
+		int lastmousey = win.getMouseInWindowY();
         while (true)
         {
             float dt = timer.dt();
@@ -1552,10 +1553,10 @@
 		    Vec3 from = Vec3(11 * cos(t), 5, 11 * sinf(t));  // 相机位置绕Y轴旋转
 		    //注意这里有个大问题，两个int相除会变成整数除法，会计算除float之后强制截断，所以要把其中一个强制转化为float类型然后相除才能保留为float类型
         
-		    int dx = win.mousex - lastmousex;  //计算鼠标相对于中心位置的偏移量
-			int dy = win.mousey - lastmousey;
-		    lastmousex = win.mousex;  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
-			lastmousey = win.mousey;
+		    int dx = win.getMouseInWindowX() - lastmousex;  //计算鼠标相对于中心位置的偏移量
+			int dy = win.getMouseInWindowY() - lastmousey;
+		    lastmousex = win.getMouseInWindowX();  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
+			lastmousey = win.getMouseInWindowY();
             camera.updateCameraPosition(win,dt,dx,dy);  //worldmatrix的本质是什么，是这个对象的换
             Vec3 dinosaurPos(
                 dinosaur.worldMatrix.m[3],
@@ -1581,29 +1582,34 @@
             //texmanager.loadreflection();
         
             Vec3 forward(0.f, 0.f, 1.f);
-            Vec3 right = Vec3(0, 1, 0).Cross(forward).normalize();  //右方向向量,为什么这么写是因为d3d12是左手坐标系，摄像机的forward方向是正z轴方向
-            int acheck = 1;
+            Vec3 right = Vec3(0, 1, 0).Cross(forward).normalize();  //右方向向量,因为我d3d12确保正z轴必须朝里，但是我这是右手螺旋，所以负左方向是y转向正z，摄像机的forward方向是正z轴方向
+            Vec3 camForward(
+                sinf(camera.yaw),
+                0.0f,
+                cosf(camera.yaw)
+            );
+            camForward = camForward.normalize();
+            Vec3 camleft = Vec3(0, 1, 0).Cross(camForward).normalize();
             if (win.keyPressed('W'))  //前进
             { //由于hlsl的相反乘法，导致我在写变换顺序的时候正好是左边的先开始变换
-                acheck = 2;
-                Matrix movematrix = Matrix::translation(Vec3(forward * dt * cameraspeed));
+                Matrix movematrix = Matrix::translation(Vec3(camForward * dt * cameraspeed));
                 dinosaur.worldMatrix = dinosaur.worldMatrix * movematrix;  //前进的方向是forward方向  * 速度 * 帧间隔时间  //其实所有的移动都是通过平移变换矩阵实现的！所有的运动都可以拆成旋转，平移矩阵的叠合
             }
 
             else if (win.keyPressed('S'))  //后退
             {
                 //camaraposition -= forward * cameraspeed * deltaTime;
-                dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-forward * dt * cameraspeed));
+                dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camForward * dt * cameraspeed));
             }
             else if (win.keyPressed('A'))  //左移
             {
                 //camaraposition -= right * cameraspeed * deltaTime;
-                dinosaur.worldMatrix =   dinosaur.worldMatrix * Matrix::translation(Vec3(right * dt * cameraspeed));
+                dinosaur.worldMatrix =   dinosaur.worldMatrix * Matrix::translation(Vec3(camleft * dt * cameraspeed));
             }
             else if (win.keyPressed('D'))  //右移
             {
                 //camaraposition += right * cameraspeed * deltaTime;
-               dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-right * dt * cameraspeed));  //因为hlsl是反的，所以所有变换矩阵，涉及到变换顺序的都要反过来
+               dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camleft * dt * cameraspeed));  //因为hlsl是反的，所以所有变换矩阵，涉及到变换顺序的都要反过来
             }
 
 		    dinosaur.draw(&core);  //画恐龙模型

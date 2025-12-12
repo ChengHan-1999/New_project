@@ -425,7 +425,7 @@ public:
 		ret.m[8] = -sin; ret.m[10] = cin;
 		return ret;
 	}
-	Vec3 RotationBaseY(const Vec3& v)  //绕y轴旋转矩阵左乘向量
+	Vec3 RotationBaseY(const Vec3& v)  //绕y轴旋转矩阵左乘向量  ,返回的是经过旋转后的那个点
 	{
 		return Vec3(
 			v.v[0] * m[0] + v.v[1] * m[4] + v.v[2] * m[8],
@@ -486,6 +486,15 @@ public:
 	Matrix operator*(const Matrix& matrix)
 	{
 		return this->mul(matrix);  //重载乘法运算符，调用mul方法
+	}
+	Matrix operator*(const float ins)
+	{
+		Matrix ret;
+		for (int i = 0; i < 16; ++i)
+		{
+			ret.m[i] = m[i] * ins;
+		}
+		return ret;
 	}
 	Matrix invert()  //得到的是当前矩阵的逆矩阵
 	{
