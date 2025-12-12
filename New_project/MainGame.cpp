@@ -499,14 +499,36 @@
 		    //这个用来初始化立方体网格数据，并上传到显存中
 
             std::vector<STATIC_VERTEX> vertices;
-            Vec3 p0 = Vec3(-1.0f, -1.0f, -1.0f);
-            Vec3 p1 = Vec3(1.0f, -1.0f, -1.0f);
-            Vec3 p2 = Vec3(1.0f, 1.0f, -1.0f);
-            Vec3 p3 = Vec3(-1.0f, 1.0f, -1.0f);
-            Vec3 p4 = Vec3(-1.0f, -1.0f, 1.0f);
-            Vec3 p5 = Vec3(1.0f, -1.0f, 1.0f);
-            Vec3 p6 = Vec3(1.0f, 1.0f, 1.0f);
-            Vec3 p7 = Vec3(-1.0f, 1.0f, 1.0f);
+            //Vec3 p0 = Vec3(-1.0f, -1.0f, -1.0f);
+            //Vec3 p1 = Vec3(1.0f, -1.0f, -1.0f);
+            //Vec3 p2 = Vec3(1.0f, 1.0f, -1.0f);
+            //Vec3 p3 = Vec3(-1.0f, 1.0f, -1.0f);
+            //Vec3 p4 = Vec3(-1.0f, -1.0f, 1.0f);
+            //Vec3 p5 = Vec3(1.0f, -1.0f, 1.0f);
+            //Vec3 p6 = Vec3(1.0f, 1.0f, 1.0f);
+            //Vec3 p7 = Vec3(-1.0f, 1.0f, 1.0f);
+            //Vec3 p0 = Vec3(-512.0f, -512.0f, -512.0f);
+            //Vec3 p1 = Vec3(512.0f, -512.0f, -512.0f);
+            //Vec3 p2 = Vec3(512.0f, 512.0f, -512.0f);
+            //Vec3 p3 = Vec3(-512.0f, 512.0f, -512.0f);
+
+            //Vec3 p4 = Vec3(-512.0f, -512.0f, 512.0f);
+            //Vec3 p5 = Vec3(512.0f, -512.0f, 512.0f);
+            //Vec3 p6 = Vec3(512.0f, 512.0f, 512.0f);
+            //Vec3 p7 = Vec3(-512.0f, 512.0f, 512.0f);
+            Vec3 p0 = Vec3(-8192.0f, -8192.0f, -8192.0f);
+            Vec3 p1 = Vec3(8192.0f, -8192.0f, -8192.0f);
+            Vec3 p2 = Vec3(8192.0f, 8192.0f, -8192.0f);
+            Vec3 p3 = Vec3(-8192.0f, 8192.0f, -8192.0f);
+
+            Vec3 p4 = Vec3(-8192.0f, -8192.0f, 8192.0f);
+            Vec3 p5 = Vec3(8192.0f, -8192.0f, 8192.0f);
+            Vec3 p6 = Vec3(8192.0f, 8192.0f, 8192.0f);
+            Vec3 p7 = Vec3(-8192.0f, 8192.0f, 8192.0f);
+
+
+
+
 		    vertices.push_back(addVertex(p0, Vec3(0.0f, 0.0f, -1.0f), 0.0f, 1.0f));    //唯一能影响前面还是背面的是顶点的顺序，顶点顺序是逆时针就是正面，顺时针就是背面，所以是要注意顶点索引的顺序
             vertices.push_back(addVertex(p1, Vec3(0.0f, 0.0f, -1.0f), 1.0f, 1.0f));
             vertices.push_back(addVertex(p2, Vec3(0.0f, 0.0f, -1.0f), 1.0f, 0.0f));
@@ -592,7 +614,7 @@
 	    void LoadShaders(Core* core)//这个是直接写死了shader的加载路径，你可以改成传参的形式，这样就可以灵活指定shader并创建pso，并调用pso
         {
             // Compile Vertex shader
-            std::string vsSource = ReadFile("SkyVertexShader.hlsl");
+            std::string vsSource = ReadFile("VertexShader.hlsl");
 
             ID3DBlob* status;
             HRESULT hr = D3DCompile(vsSource.c_str(), strlen(vsSource.c_str()), NULL,
@@ -617,7 +639,7 @@
                 if (status)
                     OutputDebugStringA((char*)status->GetBufferPointer());
             }
-            psos->createPSO(core, "Sky", vertexShader, pixelShader, VertexLayoutCache::getStaticLayout());  //创建pso,并取名为Plane
+            psos->createSkyPSO(core, "Sky", vertexShader, pixelShader, VertexLayoutCache::getStaticLayout());  //创建pso,并取名为Plane
 
 
         }
@@ -1466,10 +1488,10 @@
         // 每帧更新
         PSOManager psos;
         TextureManager texmanager;
-        //Cube cube;
-        //cube.textureManager = &texmanager;  //把纹理管理器指针传递给cube对象
-        //cube.psos = &psos;  //把pso管理器指针传递给cube对象  ，必须要在init之前就绑定好指针
-        //cube.init(&core);  //初始化立方体网格，必须在这个的后面，难道是里面的某个东西没有初始化？，是在这个init的地方报错了
+        Cube cube;
+        cube.textureManager = &texmanager;  //把纹理管理器指针传递给cube对象
+        cube.psos = &psos;  //把pso管理器指针传递给cube对象  ，必须要在init之前就绑定好指针
+        cube.init(&core);  //初始化立方体网格，必须在这个的后面，难道是里面的某个东西没有初始化？，是在这个init的地方报错了
         Vec3 target = Vec3(0, 0, 0); // 看向平面中心
         Vec3 up = Vec3(0, 1, 0);
 
@@ -1517,7 +1539,7 @@
 	    //static int Xmid = win.WindowWidth / 2;  //鼠标位于中心位置时的X坐标
 	    //win.mousex = Xmid;  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
 	    int lastmousex = win.mousex;//用刚进来时候的真实位置初始化
-
+		int lastmousey = win.mousey;
         while (true)
         {
             float dt = timer.dt();
@@ -1531,8 +1553,10 @@
 		    //注意这里有个大问题，两个int相除会变成整数除法，会计算除float之后强制截断，所以要把其中一个强制转化为float类型然后相除才能保留为float类型
         
 		    int dx = win.mousex - lastmousex;  //计算鼠标相对于中心位置的偏移量
+			int dy = win.mousey - lastmousey;
 		    lastmousex = win.mousex;  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
-            camera.updateCameraPosition(win,dt,dx);  //worldmatrix的本质是什么，是这个对象的换
+			lastmousey = win.mousey;
+            camera.updateCameraPosition(win,dt,dx,dy);  //worldmatrix的本质是什么，是这个对象的换
             Vec3 dinosaurPos(
                 dinosaur.worldMatrix.m[3],
                 dinosaur.worldMatrix.m[7],
@@ -1584,10 +1608,8 @@
 
 		    dinosaur.draw(&core);  //画恐龙模型
 			tree.material->bind(&core);  //绑定树的渲染管线状态
-			tree.draw(&core);  //画树模型
-            //constBufferMVP.W = Matrix::ScaleMatrix(Vec3(2, 2, 2)); //先draw天空盒
-            //constBufferMVP.VP = vp;  //按照我的写法，矩阵放右边的是先右乘的，每一
-            //cube.draw(&core, &constBufferMVP, 0);     // 再录制 draw
+			//tree.draw(&core);  //画树模型
+
             //在相机中我们需要人为规定一个映射比例，来表示在屏幕上鼠标移动的像素距离对应于相机旋转的角度变化
             //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
             ////W = Matrix::scaling(Vec3(0.01f, 0.01f, 0.01f));
@@ -1597,7 +1619,10 @@
             //constBufferMVP.W = Matrix::Translation(Vec3(5.0f, 0, 0));
             constBufferMVP.W = Matrix::ScaleMatrix(Vec3(10.f,10.f,10.f));
             constBufferMVP.VP = vp;  //按照我的写法，矩阵放右边的是先右乘的，每一
-		    plane.draw(&core, &constBufferMVP);     // 再录制 draw
+		    //plane.draw(&core, &constBufferMVP);     // 再录制 draw
+			constBufferMVP.W = Matrix::ScaleMatrix(Vec3(1,1,1)) * Matrix::translation(dinosaurPos); //先draw天空盒  //位移量是相机位置
+ 
+            cube.draw(&core, &constBufferMVP, 0);     // 再录制 draw
 		    //sphere.draw(&core, &constBufferMVP);     // 再录制 draw
             //triangle.draw(&core, &constBufferCPU);     // 再录制 draw
            // cube.draw(&core, &constBufferMVP,1);  //这里相当于每次更新cb时放到了两个不同的槽位，让GPU异步渲染也可以用
