@@ -21,7 +21,18 @@
     {
         float time;
     };
-
+    struct alignas(16) LightCB 
+    { 
+        Vec3 lightDir;
+      float pad0; 
+      Vec3 lightColor; 
+      float pad1; };  //我在初始化的时候不穿值，相当于pad0，pad1都是垃圾值，但是确实我也用不到
+    enum class RenderType
+    {
+        Normal,
+        Instanced,
+        Animated
+    };
     //struct STATIC_VERTEX  //这个是静态网格的顶点结构体，就是每一个顶点包含的位置，法线，切线，纹理坐标  ,这个结构为什么说使用了为自定义
     //{
     //    Vec3 pos;
@@ -30,13 +41,16 @@
     //    float tu;
     //    float tv;
     //};
+    struct ConstantBufferStruct_VP
+    {
+        Matrix VP;
+    };
     struct ConstantBufferStruct_MVP  //这个是用来传递MVP矩阵的常量缓冲区结构体
     {
 	    Matrix W;  //这个是世界矩阵，用来吧模型从局部空间变换到世界空间
 	    Matrix VP;  //这两个是View和Projection矩阵，一般来说这两个矩阵是可以合并成一个矩阵传递给shader的，用来转换到相机视角并转换到裁剪空间
     };
     struct ConstantBufferStruct_Animation
-         //这个是用来传递MVP矩阵的常量缓冲区结构体
     {
         Matrix W;  //这个是世界矩阵，用来吧模型从局部空间变换到世界空间
         Matrix VP;  //这两个是View和Projection矩阵，一般来说这两个矩阵是可以合并成一个矩阵传递给shader的，用来转换到相机视角并转换到裁剪空间
@@ -52,7 +66,10 @@
         unsigned int bonesIDs[4];
         float boneWeights[4];
     };  //
-
+    struct INSTANCE
+    {
+        Matrix w;
+    };
     //static class VertexLayoutCache  //直接用这个类来获取静态网格的输入布局描述符，传给pso
     //{
     //public:
@@ -75,13 +92,17 @@
     {
     public:
         ID3D12Resource* vertexBuffer;  //这个就是显存资源区，要放到这个里面
+        ID3D12Resource* instanceBuffer;
+
         D3D12_VERTEX_BUFFER_VIEW vbView;
         D3D12_INPUT_ELEMENT_DESC inputLayout[2];
         D3D12_INPUT_LAYOUT_DESC inputLayoutDesc;  //这个是输入布局描述符，要告诉输入装配器怎么去读取顶点数据
 	    //像素缓冲区资源和视图
+        D3D12_VERTEX_BUFFER_VIEW instanceView;
         ID3D12Resource* indexBuffer;
         D3D12_INDEX_BUFFER_VIEW ibView;
         unsigned int numMeshIndices;
+		unsigned int numMeshInstances = 1;  //如果没有实例化渲染的话，默认实例数量就是1
 
 
         void init(Core* core, void* vertices, int vertexSizeInBytes, int numVertices,unsigned int* indices ,int numIndices)
@@ -106,6 +127,7 @@
             vbView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
             vbView.StrideInBytes = vertexSizeInBytes;
             vbView.SizeInBytes = numVertices * vertexSizeInBytes;
+
     //        inputLayout[0] = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,  //这里是在定义顶点析构规则
     //D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 };
     //        inputLayout[1] = { "COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
@@ -138,10 +160,16 @@
             ibView.SizeInBytes = numIndices * sizeof(unsigned int);
             numMeshIndices = numIndices;
 
+
         }
-        void init(Core* core, std::vector<STATIC_VERTEX> vertices, std::vector<unsigned int> indices)
+        void init(Core* core, std::vector<STATIC_VERTEX> vertices, std::vector<unsigned int> indices,std::vector<INSTANCE>* instances = nullptr)  //我还要多穿进来一个instance的数组
         {
             init(core,&vertices[0], sizeof(STATIC_VERTEX), vertices.size(), &indices[0], indices.size());
+            if (instances)
+            {
+                initInstanceBuffer(core, instances);  //这个函数用来初始化实例化缓冲区,分配一个GPU资源，并上传矩阵数据，但是我给了默认的指针是空指针代表没有需要的矩阵
+            }
+
 		    //inputLayoutDesc = VertexLayoutCache::getStaticLayout();  这个完全不需要把？我不需要在mesh里耦合输入布局描述符
         }
 	    void init(Core* core, std::vector<ANIMATED_VERTEX> vertices, std::vector<unsigned int> indices)  //这个是用来初始化动画网格的顶点数据的
@@ -149,12 +177,40 @@
             init(core, &vertices[0], sizeof(ANIMATED_VERTEX), vertices.size(), &indices[0], indices.size());
             inputLayoutDesc = VertexLayoutCache::getAnimatedLayout();
         }
+		void initInstanceBuffer(Core* core, std::vector<INSTANCE>* instances)  //这个函数用来初始化实例化缓冲区,分配一个GPU资源，并上传数据
+        {
+            D3D12_HEAP_PROPERTIES heapprops = {};
+            heapprops.Type = D3D12_HEAP_TYPE_DEFAULT;
+            heapprops.CreationNodeMask = 1;
+            heapprops.VisibleNodeMask = 1;
+            D3D12_RESOURCE_DESC ibDesc = {};
+            ibDesc.Width = instances->size() * sizeof(INSTANCE);
+            ibDesc.Height = 1;
+            ibDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            ibDesc.DepthOrArraySize = 1;
+            ibDesc.MipLevels = 1;
+            ibDesc.SampleDesc.Count = 1;
+            ibDesc.SampleDesc.Quality = 0;
+            ibDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            core->device->CreateCommittedResource(&heapprops, D3D12_HEAP_FLAG_NONE, &ibDesc,
+                D3D12_RESOURCE_STATE_COMMON, NULL, IID_PPV_ARGS(&instanceBuffer));
+			core->uploadResource(instanceBuffer, instances->data(), instances->size() * sizeof(INSTANCE),  //instances是一个指针，所以要传它的size需要解引用,本身传进来的就是一个指针
+                D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+            instanceView.BufferLocation = instanceBuffer->GetGPUVirtualAddress();
+            instanceView.StrideInBytes = sizeof(INSTANCE);
+            instanceView.SizeInBytes = instances->size() * sizeof(INSTANCE);
+			numMeshInstances = instances->size();
+		}
         void draw(Core* core)  //好像根本不需要那个mesh类
         {
+            D3D12_VERTEX_BUFFER_VIEW bufferViews[2];
+            bufferViews[0] = vbView;
+            bufferViews[1] = instanceView;
+
 		    core->getCommandList()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);  //这里设置了图元拓扑结构是三角形列表
-            core->getCommandList()->IASetVertexBuffers(0, 1, &vbView);  //这里设置顶点缓冲区顶点数据来源的VRAM  
-            core->getCommandList()->IASetIndexBuffer(&ibView);
-            core->getCommandList()->DrawIndexedInstanced(numMeshIndices, 1, 0, 0, 0);   
+			core->getCommandList()->IASetVertexBuffers(0, 2, bufferViews);  //这里代表我要设置两个顶点缓冲区，第一个是顶点缓冲区，第二个是实例化缓冲区，你在拿对应的资源的时候可以从这两个不同的slot去拿，起始槽位与总共囊括的槽位
+			core->getCommandList()->IASetIndexBuffer(&ibView);  //这是设置索引缓冲区数据来源的VRAM
+			core->getCommandList()->DrawIndexedInstanced(numMeshIndices, numMeshInstances, 0, 0, 0);     //
 
             //core->getCommandList()->DrawInstanced(3, 1, 0, 0);
         }
@@ -516,16 +572,25 @@
             //Vec3 p5 = Vec3(512.0f, -512.0f, 512.0f);
             //Vec3 p6 = Vec3(512.0f, 512.0f, 512.0f);
             //Vec3 p7 = Vec3(-512.0f, 512.0f, 512.0f);
-            Vec3 p0 = Vec3(-8192.0f, -8192.0f, -8192.0f);
-            Vec3 p1 = Vec3(8192.0f, -8192.0f, -8192.0f);
-            Vec3 p2 = Vec3(8192.0f, 8192.0f, -8192.0f);
-            Vec3 p3 = Vec3(-8192.0f, 8192.0f, -8192.0f);
+            //Vec3 p0 = Vec3(-8192.0f, -8192.0f, -8192.0f);
+            //Vec3 p1 = Vec3(8192.0f, -8192.0f, -8192.0f);
+            //Vec3 p2 = Vec3(8192.0f, 8192.0f, -8192.0f);
+            //Vec3 p3 = Vec3(-8192.0f, 8192.0f, -8192.0f);
 
-            Vec3 p4 = Vec3(-8192.0f, -8192.0f, 8192.0f);
-            Vec3 p5 = Vec3(8192.0f, -8192.0f, 8192.0f);
-            Vec3 p6 = Vec3(8192.0f, 8192.0f, 8192.0f);
-            Vec3 p7 = Vec3(-8192.0f, 8192.0f, 8192.0f);
+            //Vec3 p4 = Vec3(-8192.0f, -8192.0f, 8192.0f);
+            //Vec3 p5 = Vec3(8192.0f, -8192.0f, 8192.0f);
+            //Vec3 p6 = Vec3(8192.0f, 8192.0f, 8192.0f);
+            //Vec3 p7 = Vec3(-8192.0f, 8192.0f, 8192.0f);
 
+            Vec3 p0 = Vec3(-4096.0f, -4096.0f, -4096.0f);
+            Vec3 p1 = Vec3(4096.0f, -4096.0f, -4096.0f);
+            Vec3 p2 = Vec3(4096.0f, 4096.0f, -4096.0f);
+            Vec3 p3 = Vec3(-4096.0f, 4096.0f, -4096.0f);
+
+            Vec3 p4 = Vec3(-4096.0f, -4096.0f, 4096.0f);
+            Vec3 p5 = Vec3(4096.0f, -4096.0f, 4096.0f);
+            Vec3 p6 = Vec3(4096.0f, 4096.0f, 4096.0f);
+            Vec3 p7 = Vec3(-4096.0f, 4096.0f, 4096.0f);
 
 
 
@@ -628,7 +693,7 @@
             }
 
             // Compile pixel shader
-		    std::string psSource = ReadFile("TextureShader.txt");  //必须是带有纹理采样的shader
+		    std::string psSource = ReadFile("SkyPS.txt");  //必须是带有纹理采样的shader
 
             hr = D3DCompile(psSource.c_str(), strlen(psSource.c_str()), NULL, NULL,
                 NULL, "PS", "ps_5_0", 0, 0, &pixelShader, &status);
@@ -677,8 +742,10 @@
         Mesh mesh;
         ID3DBlob* vertexShader;
         ID3DBlob* pixelShader;
-        PSOManager psos;
+        PSOManager* psos;  //这里换成指针，从外部传进来
         ConstantBuffer constantBuffer;
+        TextureManager* textureManager;
+        int textureID;
         STATIC_VERTEX addVertex(Vec3 p, Vec3 n, float tu, float tv)
         {
             STATIC_VERTEX v;
@@ -693,16 +760,21 @@
 	    void init(Core* core)  //这个函数用来初始化平面的顶点数据，并上传到显存中
         {
             std::vector<STATIC_VERTEX> vertices;
-		    vertices.push_back(addVertex(Vec3(-15, 0, -15), Vec3(0, 1, 0), 0, 0));  //用helper函数来快速添加顶点，把多个属性一次性填进去
-            vertices.push_back(addVertex(Vec3(15, 0, -15), Vec3(0, 1, 0), 1, 0));
-            vertices.push_back(addVertex(Vec3(-15, 0, 15), Vec3(0, 1, 0), 0, 1));
-            vertices.push_back(addVertex(Vec3(15, 0, 15), Vec3(0, 1, 0), 1, 1));
+		    //vertices.push_back(addVertex(Vec3(-15, 0, -15), Vec3(0, 1, 0), 0, 0));  //用helper函数来快速添加顶点，把多个属性一次性填进去
+      //      vertices.push_back(addVertex(Vec3(15, 0, -15), Vec3(0, 1, 0), 1, 0));
+      //      vertices.push_back(addVertex(Vec3(-15, 0, 15), Vec3(0, 1, 0), 0, 1));
+      //      vertices.push_back(addVertex(Vec3(15, 0, 15), Vec3(0, 1, 0), 1, 1));
+            vertices.push_back(addVertex(Vec3(-1024, 0, -1024), Vec3(0, 1, 0), 0, 0));
+            vertices.push_back(addVertex(Vec3(1024, 0, -1024), Vec3(0, 1, 0), 1, 0));
+            vertices.push_back(addVertex(Vec3(-1024, 0, 1024), Vec3(0, 1, 0), 0, 1));
+            vertices.push_back(addVertex(Vec3(1024, 0, 1024), Vec3(0, 1, 0), 1, 1));
+
 
             std::vector<unsigned int> indices = {
                 2, 1, 0,
                 1, 2, 3
             };
-
+			textureID = textureManager->load(core, "Models/MudTexture.png");  //这里加载平面的纹理
 		    mesh.init(core, vertices, indices);  //这里将定点数据转化到VRAM中去了
 		    LoadShaders(core);  //这里是加载shader并创建pso
 		    constantBuffer.init(core, sizeof(ConstantBufferStruct_MVP), 2);  //这里是创建constantbuffer ，但是不太对吧，我应该是要穿移动MVP矩阵进去才对
@@ -714,35 +786,35 @@
                     buffer << file.rdbuf();
                     return buffer.str();
                 }
-        void LoadShaders(Core* core)
-        {
-            // Compile Vertex shader
-            std::string vsSource = ReadFile("VertexShader.hlsl");
-
-            ID3DBlob* status;
-            HRESULT hr = D3DCompile(vsSource.c_str(), strlen(vsSource.c_str()), NULL,
-                NULL, NULL, "VS", "vs_5_0", 0, 0, &vertexShader, &status);
-
-            // CHeck if vertex shader compiles
-            if (FAILED(hr))
+            void LoadShaders(Core* core)
             {
-                if (status)
-                    OutputDebugStringA((char*)status->GetBufferPointer());
-            }
+                // Compile Vertex shader
+                std::string vsSource = ReadFile("VertexShader.hlsl");
 
-            // Compile pixel shader
-            std::string psSource = ReadFile("PixelShader.hlsl");
+                ID3DBlob* status;
+                HRESULT hr = D3DCompile(vsSource.c_str(), strlen(vsSource.c_str()), NULL,
+                    NULL, NULL, "VS", "vs_5_0", 0, 0, &vertexShader, &status);
 
-            hr = D3DCompile(psSource.c_str(), strlen(psSource.c_str()), NULL, NULL,
-                NULL, "PS", "ps_5_0", 0, 0, &pixelShader, &status);
+                // CHeck if vertex shader compiles
+                if (FAILED(hr))
+                {
+                    if (status)
+                        OutputDebugStringA((char*)status->GetBufferPointer());
+                }
 
-            // CHeck if pixel shader compiles
-            if (FAILED(hr))
-            {
-                if (status)
-                    OutputDebugStringA((char*)status->GetBufferPointer());
-            }
-		    psos.createPSO(core, "Plane", vertexShader, pixelShader, VertexLayoutCache::getStaticLayout());  //创建pso,并取名为Plane
+                // Compile pixel shader
+                std::string psSource = ReadFile("TextureShader.txt");
+
+                hr = D3DCompile(psSource.c_str(), strlen(psSource.c_str()), NULL, NULL,
+                    NULL, "PS", "ps_5_0", 0, 0, &pixelShader, &status);
+
+                // CHeck if pixel shader compiles
+                if (FAILED(hr))
+                {
+                    if (status)
+                        OutputDebugStringA((char*)status->GetBufferPointer());
+                }
+		        psos->createPSO(core, "Plane", vertexShader, pixelShader, VertexLayoutCache::getStaticLayout());  //创建pso,并取名为Plane
 
        
         }
@@ -756,8 +828,8 @@
                 0,
                 constantBuffer.getGPUAddress(core->frameIndex())
             );
-
-		    psos.bind(core, "Plane");  //然后绑定Plane的pso
+			textureManager->updateTexturePS(core, "tex", textureID);  //绑定平面的纹理到像素着色器
+		    psos->bind(core, "Plane");  //然后绑定Plane的pso
             mesh.draw(core);
         }
     };
@@ -814,9 +886,9 @@
                 reflectionPS->GetDesc(&descPS);
                 texmanager.loadreflection(reflectionPS, descPS);
                 reflectionPS->Release();//释放反射接口,不然会泄露
-                psos.createPSO(core, _psoname, vertexShader, pixelShader, VertexLayoutCache::getStaticLayout());  //创建pso,并取名为Plane
+                psos.createPSO(core, _psoname, vertexShader, pixelShader, VertexLayoutCache::getStaticInstancedLayout());  //创建pso,并取名为Plane
 
-
+                  //zhe
             }
 		    virtual void bind(Core* core)  //如果没有virtual，那么调用父类容器的时候只会调用父类的bind函数，而不会调用子类的bind函数
             {
@@ -827,11 +899,11 @@
     {
     public:
         std::vector<Mesh*> meshes;
-        std::vector<std::string> textureFilenames;  //这里要的是纹理的文件名，不是纹理名
+		std::vector<std::string> textureFilenames;  //这里要的是纹理的文件名，不是纹理名,所以在树模型和bamboo模型加载完之后，这个vector里面存的就是每个mesh对应的纹理文件名
         TextureManager* texmanager;
         std::vector<int> textureHeapOffsets;  //我也可以直接存，因为mesh存入的顺序是固定的，所以我遍历mesh的时候就是按照一样的顺序取heapoffsets
         Animation animation;
-        virtual void load(Core* core, const std::string& filename) {  //这是加载了该物体的mesh的形状数据，相当于这是一个Tree的程序化生成器
+        virtual void load(Core* core, const std::string& filename,std::vector<INSTANCE>* instances) {  //这是加载了该物体的mesh的形状数据，相当于这是一个Tree的程序化生成器
             GEMLoader::GEMModelLoader loader;
             std::vector<GEMLoader::GEMMesh> gemmeshes;
             loader.load(filename, gemmeshes);
@@ -844,10 +916,14 @@
                     memcpy(&v, &gemmeshes[i].verticesStatic[j], sizeof(STATIC_VERTEX));
                     vertices.push_back(v);
                 }  //重复的push是很正常的，所以实际上这里还是压入了每一个mesh的名称
-                textureFilenames.push_back(gemmeshes[i].material.find("albedo").getValue());  //读取mesh的材质数据，mesh里面应该是写了要用什么材质的，这个纹理有一个文件名就是getvalue，albedo是纹理的名字？那字符串路径应该是规定好了的
+                auto stringname = gemmeshes[i].material.find("albedo").getValue();
+                //std::string fullPath = "Models/Textures/" + stringname;
+				textureFilenames.push_back(stringname);  //压进去的必须是能找到贴图的路径
+                texmanager->load(core, stringname);  //竹子的是直接写了完整的路径的
+                  //读取mesh的材质数据，mesh里面应该是写了要用什么材质的，这个纹理有一个文件名就是getvalue，albedo是纹理的名字？那字符串路径应该是规定好了的
                 //一个model有多个mesh，每个mesh有自己的材质，每个材质有自己的贴图
                 //texture->upload(core, gemmeshes[i].material.find("albedo").getValue());  //直接上传到GPU，但是我这里要用mnanager来管理，所以我就在最后便利vector，并且用manager.
-                mesh->init(core, vertices, gemmeshes[i].indices);
+                mesh->init(core, vertices, gemmeshes[i].indices,instances);
                 meshes.push_back(mesh);
             }
             //for (size_t i = 0; i < textureFilenames.size(); i++)//遍历整个vector，然后加载数据
@@ -920,22 +996,37 @@
 
     class RenderObject{  //如果这个时treemodle，那么这个里面就需要包含多个mesh，一个模型可能有多个mesh  ,每一个需要渲染的对象都是RenderObject的实例，只不过构成它的model和material是可以自己组合的！
     public:
-    
+        RenderType type_;
 	    Model* model = nullptr;
         Material* material = nullptr;
 	    ConstantBuffer cb;  //这个是用来工薪MVP的cb
 	    //ConstantBuffer cbBones;// 这个是用来工薪骨骼矩阵的cb
 	    Matrix worldMatrix;  //每个渲染对象都有自己的世界矩阵,VP矩阵好像不需要存储在这里，因为每个对象的VP矩阵都是一样的，V矩阵是相机类自己定的，可以在实例化这个对象的时候传入初始位置
 	    AnimationInstance* animationInstance = nullptr;  //每个渲染对象都有自己的动画实例数据，这样就可以实现同一个动画模型被多个对象实例化使用，并且每个对象实例有自己的动画播放状态,这个也应该是指针
-	    void init(Core* core, Model* TreeModel, Material* TreeMaterial, bool isanimated, const Matrix& worldpositon) {//我传一个meterial进来的目的是为了bind？那我为什么不直接用psos指针的bind呢
-            worldMatrix = worldpositon;
-            if (isanimated)
+	    void init(Core* core, Model* TreeModel, Material* TreeMaterial, bool isanimated,RenderType rendertype) {//我传一个meterial进来的目的是为了bind？那我为什么不直接用psos指针的bind呢
+			type_ = rendertype;
+            switch (type_)
             {
-                cb.init(core, sizeof(ConstantBufferStruct_Animation), 2); //初始化骨骼矩阵的cb  //但是没有这个结构，但是我知道矩阵大小，把这个放到槽位1去让shader访问
-            }
-            else
-            {
-                cb.init(core, sizeof(ConstantBufferStruct_MVP), 2);  //加载mesh时同时初始化constantbuffer
+                ////  Normal,
+                //Instanced,
+                //    Animated
+                case RenderType::Animated:
+                {
+					cb.init(core, sizeof(ConstantBufferStruct_Animation), 2);   //开辟常规的cb槽位，用来存储需要放进去的数据，相当于这里是有了存储空间
+                    break;
+				}
+                case RenderType::Normal:
+                {
+                    cb.init(core, sizeof(ConstantBufferStruct_MVP), 2);
+					break;
+                }
+                case RenderType::Instanced:
+                {
+                    cb.init(core, sizeof(ConstantBufferStruct_VP), 2);  //这里按照我的理解是在给这个renderobject开创CB资源的内存长度，而我instanced每次只需要跟新的是VP矩阵，所以不应该放的是INSTANCE
+                    break;
+				}
+            default:
+                break;
             }
 		    model = TreeModel;  //把传进来的model指针赋值给自己的model指针，这样就可以实现一个Modlel被多个Tree实例共享使用它的mesh数据
 		    material = TreeMaterial;  //把传进来的material指针赋值给自己的material指针，这样就可以实现一个Material被多个Tree实例共享使用它的pso数据
@@ -944,34 +1035,65 @@
     
         void updateCB(Core* core, const Matrix& viewProj)
         {
-            if (animationInstance)
+            int slot = core->frameIndex();
+            if (type_ == RenderType::Animated)
             {
                 ConstantBufferStruct_Animation data;
-			    data.VP = viewProj;  //传入的是转置后的矩阵，因为我是行主须
-                data.W = worldMatrix;  //我更新数据肯定要把修改的bones矩阵传进来
+                data.W = worldMatrix;  //自己的世界矩阵，所以这个世界矩阵可以直接送外面显示传入
+                data.VP = viewProj;
                 for (int i = 0; i < 256; ++i) {
-				    data.bones[i] = animationInstance->matrices[i];  //把骨骼矩阵数组复制进去
+                    data.bones[i] = animationInstance->matrices[i];  //把骨骼矩阵数组复制进去
                 }
-                int slot = core->frameIndex(); // 双缓冲
-                cb.update(&data, sizeof(data), slot);
+                cb.update(&data, sizeof(data), slot);  //这个update仅仅是吧资源从cpu端拷贝到了GPU端而已
 
                 core->getCommandList()->SetGraphicsRootConstantBufferView(
-                    0, cb.getGPUAddress(slot) //从0槽位读取MVP矩阵以及骨骼矩阵数据
-                );
+                    0, cb.getGPUAddress(slot));  //从0槽位读取MVP矩阵以及骨骼矩阵数据
             }
-            else
+            else if (type_ == RenderType::Normal)
             {
                 ConstantBufferStruct_MVP data;
-                data.W = worldMatrix;  //这个W自己的，VP是相机确定的所以是从外部传进来的
+				data.W = worldMatrix;  //这个W也是自己声明的时候自己确定的，但是确定了之后就不用再传进来了
                 data.VP = viewProj;
-
-                int slot = core->frameIndex(); // 双缓冲
                 cb.update(&data, sizeof(data), slot);
-
                 core->getCommandList()->SetGraphicsRootConstantBufferView(
-                    0, cb.getGPUAddress(slot) //从0槽位读取MVP矩阵以及骨骼矩阵数据
-                );
+                    0, cb.getGPUAddress(slot));
             }
+            else if (type_ == RenderType::Instanced)
+            {
+                ConstantBufferStruct_VP data;
+                data.VP = viewProj;
+                cb.update(&data, sizeof(data), slot);
+                core->getCommandList()->SetGraphicsRootConstantBufferView(
+                    0, cb.getGPUAddress(slot));
+            }
+       //     if (animationInstance)
+       //     {
+       //         ConstantBufferStruct_Animation data;
+			    //data.VP = viewProj;  //传入的是转置后的矩阵，因为我是行主须
+       //         data.W = worldMatrix;  //我更新数据肯定要把修改的bones矩阵传进来
+       //         for (int i = 0; i < 256; ++i) {
+				   // data.bones[i] = animationInstance->matrices[i];  //把骨骼矩阵数组复制进去
+       //         }
+       //         int slot = core->frameIndex(); // 双缓冲
+       //         cb.update(&data, sizeof(data), slot);  //这个update仅仅是吧资源从cpu端拷贝到了GPU端而已
+
+       //         core->getCommandList()->SetGraphicsRootConstantBufferView(
+       //             0, cb.getGPUAddress(slot) //从0槽位读取MVP矩阵以及骨骼矩阵数据
+       //         );
+       //     }
+    //        else
+    //        {
+    //            ConstantBufferStruct_MVP data;
+    //            data.W = worldMatrix;  //这个W自己的，VP是相机确定的所以是从外部传进来的
+    //            data.VP = viewProj;
+
+    //            int slot = core->frameIndex(); // 双缓冲
+				//cb.update(&data, sizeof(data), slot);  //将新的数据更新到cb中去，constbuffer在某一帧，GPU只能
+
+    //            core->getCommandList()->SetGraphicsRootConstantBufferView(
+    //                0, cb.getGPUAddress(slot) //从0槽位读取MVP矩阵以及骨骼矩阵数据
+    //            );
+    //        }
 
        //     if (animationInstance)  //如果动画实例存在
        //     {
@@ -987,6 +1109,11 @@
                 //model->texmanager->updateTexturePS(core, "albedo", )
                 //    m->draw(core);
 			    material->bind(core);  //绑定这个renderobject对应的材质的pso  ,我每个renderobject都有自己的material指针，meterial里面包含了这个材质对应的pso管线名称
+                if (material->psoname  == "DinosaurShadowMaterial")
+                {
+                    model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
+                    return;
+                }
                 model->texmanager->updateTexturePS(core, "tex", model->texmanager->find(model->textureFilenames[i])); //我严重怀疑是这里出了问题，就是我的texture着色器穿错了，而且这里必须我传进去的资源名称
 			    model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
             }
@@ -1087,7 +1214,7 @@
     public:
         std::map<std::string, Model*> models;  //模型名称对应模型指针  
         TextureManager* texmanager;  //模型管理器里面包含一个纹理管理器指针，因为模型加载时会用到纹理管理器来加载纹理
-	    Model* loadModel(Core* core, const std::string& filename, const std::string& modelname,bool isanimated)  //这个函数用来加载模型数据，并返回模型指针，第二个是文件名,第一次加载模型时可以当作加载并返回模型指针，后续获取已经加载过的模型时调用getModel函数
+	    Model* loadModel(Core* core, const std::string& filename, const std::string& modelname,bool isanimated,std::vector<INSTANCE>* instances = nullptr)  //这个函数用来加载模型数据，并返回模型指针，第二个是文件名,第一次加载模型时可以当作加载并返回模型指针，后续获取已经加载过的模型时调用getModel函数
         {
 		    Model* model;  //如果不存在，就创建一个新的模型指针
             if (isanimated)
@@ -1101,7 +1228,7 @@
             {
                 model = new Model();
                 model->texmanager = texmanager;  //把纹理管理器指针传递给模型
-                model->load(core, filename);
+                model->load(core, filename, instances);
             }
             models[modelname] = model;  //把新加载的模型存储到map中
 		    return model;  //加载完毕，返回模型指针，并且map中已经存储了该模型
@@ -1469,13 +1596,21 @@
         win.create(WIDTH, HEIGHT, "My Window");
         Core core;
         core.init(win.hwnd, WIDTH, HEIGHT);
-	    Plane plane;
-	    plane.init(&core);  //初始化平面网格
 
+        ConstantBuffer lightCB;
+        lightCB.init(&core,sizeof(LightCB),2);   //这里是初始化了一个光照cb，也是为双缓冲机制
 	    //Sphere sphere;
 	    //sphere.init(&core);  //初始化球体网格
         //triangle.init(&core);
         //ConstantBufferStruct constBufferCPU{};
+		LightCB lightdata  //这里直接初始化光照数据，然后进行全局绑定，不用每帧更新了吧
+        {
+        Vec3(-1.0f,-1.0f,-1.0f),
+        0.0f,
+        Vec3(3.0f, 3.0f, 3.0f),
+        0.0f
+        };
+
 	    ConstantBufferStruct_MVP constBufferMVP{};
 	     //世界矩阵初始化为单位矩阵,即当前模型不进行任何变换，没有位移
 	    float t = 0;
@@ -1488,6 +1623,10 @@
         // 每帧更新
         PSOManager psos;
         TextureManager texmanager;
+        Plane plane;
+		plane.textureManager = &texmanager;  //把纹理管理器指针传递给plane对象
+		plane.psos = &psos;  //把pso管理器指针传递给plane对象  ，必须要在init之前就绑定好指针
+        plane.init(&core);  //初始化平面网格
         Cube cube;
         cube.textureManager = &texmanager;  //把纹理管理器指针传递给cube对象
         cube.psos = &psos;  //把pso管理器指针传递给cube对象  ，必须要在init之前就绑定好指针
@@ -1510,18 +1649,64 @@
 	    ModelManager modelmanager;
 	    modelmanager.texmanager = &texmanager;  //把纹理管理器指针传递给模型管理器
 	    modelmanager.loadModel(&core, "Models/TRex.gem", "dinosaur", true);  //通过模型管理器加载动画模型
-		modelmanager.loadModel(&core, "Models/acacia_003.gem", "tree", false);  //通过模型管理器加载静态模型
+        std::vector<INSTANCE> fourmatrix;
+        Vec3 positions[4] =
+        {
+            Vec3(-5, 0, -5),
+            Vec3(5, 0, -5),
+            Vec3(-5, 0,  5),
+            Vec3(5, 0,  5)
+        }; 
+        std::vector<INSTANCE> fourmatrix_2;
+        Vec3 positions_2[4] =
+        {
+            Vec3(-10, 0, -10),
+            Vec3(10, 0, -10),
+            Vec3(-10, 0,  10),
+            Vec3(10, 0,  10)
+        };
+        for (int i = 0; i < 4; i++)
+        {
+            // 平移矩阵
+            Matrix T = Matrix::translation(positions[i]);  //通过偏移的x，y，z值直接创建平移矩阵
+            Matrix S = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
+            INSTANCE inst;
+			inst.w = S *  T;  //先缩放再平移  从做到右的变换顺序
+            fourmatrix.push_back(inst);
+            // 最终实例矩阵
+            //fourmatrix[i].w = T;
+        }        
+        for (int i = 0; i < 4; i++)
+        {
+            // 平移矩阵
+            Matrix T = Matrix::translation(positions_2[i]);  //通过偏移的x，y，z值直接创建平移矩阵
+            Matrix S = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
+            INSTANCE inst;
+            inst.w = S * T;  //先缩放再平移  从做到右的变换顺序
+            fourmatrix_2.push_back(inst);
+            // 最终实例矩阵
+            //fourmatrix[i].w = T;
+        }
+		//modelmanager.loadModel(&core, "Models/acacia_003.gem", "tree", false,&fourmatrix);  //通过模型管理器加载静态模型
+        modelmanager.loadModel(&core, "Models/bamboo.gem", "bamboo", false, &fourmatrix_2); //在加载bamboo的时候空了？
 	    AnimationMaterial animateMaterial; //如果我断点打在这一行代表还没有进入这一行执行，前面行的内容已经执行完了，在执行这一行之前暂停
 	    //animateMaterial.texmanager = &texmanager;
-		Material treeMaterial;
-		treeMaterial.LoadShaders(&core, "VertexShader.hlsl", "C:/Lesson/New_project/New_project/TextureShader.txt", "TreeMaterial",texmanager);
+		//Material treeMaterial;
+		Material bambooMaterial;
+		//treeMaterial.LoadShaders(&core, "InstancingVertexShader.hlsl", "TextureShader.txt", "TreeMaterial",texmanager);
+		bambooMaterial.LoadShaders(&core, "InstancingVertexShader.hlsl", "TextureShader.txt", "BambooMaterial", texmanager);
 	    animateMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/VSAnim.txt", "C:/Lesson/New_project/New_project/TextureShader.txt", "AnimatedModelPSO",texmanager);  //加载动画模型的材质，肯定要包含psos
+		AnimationMaterial dinosaurShadowMaterial;
+		dinosaurShadowMaterial.LoadShaders(&core, "ShadowVertexShader.txt", "ShadowPixelShader.txt", "DinosaurShadowMaterial", texmanager);
         AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
         animatedInstance.init(&modelmanager.getModel("dinosaur")->animation, 0);
 	    RenderObject dinosaur;  //创建一个动画模型对象实例
-	    dinosaur.init(&core,modelmanager.getModel("dinosaur"), &animateMaterial, true, Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f))); //还有初始World变化矩阵 //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
-        RenderObject tree;
-        tree.init(&core, modelmanager.getModel("tree"), &treeMaterial, false, Matrix::ScaleMatrix(Vec3(1.f,1.f,1.f)));
+	    dinosaur.init(&core,modelmanager.getModel("dinosaur"), &animateMaterial, true, RenderType::Animated); //还有初始World变化矩阵 //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
+		dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小
+        //RenderObject tree;
+        //tree.init(&core, modelmanager.getModel("tree"), &treeMaterial, false, RenderType::Instanced);  //看一下里面的model的meshes传进来没有
+		RenderObject bamboo;
+		bamboo.init(&core, modelmanager.getModel("bamboo"), &bambooMaterial, false, RenderType::Instanced);  //看一下里面的model的meshes传进来没有
         dinosaur.animationInstance = &animatedInstance;
         //Shaders shaders;
 
@@ -1541,6 +1726,7 @@
 		win.initmouse();  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
 		int lastmousex = win.getMouseInWindowX();//用刚进来时候的把鼠标位置存下来，作为最初的上次鼠标位置，但是如果的鼠标一开始就不在中心位置的话会有问题
 		int lastmousey = win.getMouseInWindowY();
+
         while (true)
         {
             float dt = timer.dt();
@@ -1550,6 +1736,11 @@
             win.checkInput();
             if (win.keys[VK_ESCAPE]) break;
             core.beginRenderPass();
+            int slot = core.frameIndex(); // 双缓冲
+            lightCB.update(&lightdata, sizeof(lightdata), slot);  //我这里直接把光照数据从CPU端更新到
+            core.getCommandList()->SetGraphicsRootConstantBufferView(
+				2, lightCB.getGPUAddress(slot));  //将光照数据绑定到根参数槽2上，每个用了光照数据的shader都可以通过这个槽位来访问光照数据
+			//
 		    Vec3 from = Vec3(11 * cos(t), 5, 11 * sinf(t));  // 相机位置绕Y轴旋转
 		    //注意这里有个大问题，两个int相除会变成整数除法，会计算除float之后强制截断，所以要把其中一个强制转化为float类型然后相除才能保留为float类型
         
@@ -1579,6 +1770,7 @@
 		    //dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小,但是这里有问题，因为你一进来之后，每次循环都重新把worldtrix置灰原值
 		    dinosaur.updateCB(&core, vp);  //更新恐龙实例的constantbuffer  //里面的骨骼矩阵cb也会被更新但是不用自己传进去
 		    dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
+
             //texmanager.loadreflection();
         
             Vec3 forward(0.f, 0.f, 1.f);
@@ -1611,21 +1803,27 @@
                 //camaraposition += right * cameraspeed * deltaTime;
                dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camleft * dt * cameraspeed));  //因为hlsl是反的，所以所有变换矩阵，涉及到变换顺序的都要反过来
             }
-
+            
 		    dinosaur.draw(&core);  //画恐龙模型
-			tree.material->bind(&core);  //绑定树的渲染管线状态
+			dinosaur.material = &dinosaurShadowMaterial;
+			////dinosaur.material->bind(&core);   //绑定恐龙阴影渲染管线状态，但是这个好麻烦还要重新换一次materail来绑定渲染管线
+			dinosaur.draw(&core);  //画恐龙模型的阴影
+			//tree.material->bind(&core);  //绑定树的渲染管线状态
+			//tree.updateCB(&core, vp);  //更新树实例的constantbuffer
 			//tree.draw(&core);  //画树模型
-
+            bamboo.material->bind(&core);  //绑定树的渲染管线状态
+            bamboo.updateCB(&core, vp);  //更新树实例的constantbuffer
+            bamboo.draw(&core);  //画树模型
             //在相机中我们需要人为规定一个映射比例，来表示在屏幕上鼠标移动的像素距离对应于相机旋转的角度变化
             //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
-            ////W = Matrix::scaling(Vec3(0.01f, 0.01f, 0.01f));
+           
             //animatedModel.draw(&core, &psos, &shaders, &animatedInstance, vp, W);
 
             //constBufferMVP.W = Matrix::translation(Vec3(5.0f, 0.0f, 0.0f)); //把立方体平移5个单位
             //constBufferMVP.W = Matrix::Translation(Vec3(5.0f, 0, 0));
             constBufferMVP.W = Matrix::ScaleMatrix(Vec3(10.f,10.f,10.f));
             constBufferMVP.VP = vp;  //按照我的写法，矩阵放右边的是先右乘的，每一
-		    //plane.draw(&core, &constBufferMVP);     // 再录制 draw
+		    plane.draw(&core, &constBufferMVP);     // 再录制 draw
 			constBufferMVP.W = Matrix::ScaleMatrix(Vec3(1,1,1)) * Matrix::translation(dinosaurPos); //先draw天空盒  //位移量是相机位置
  
             cube.draw(&core, &constBufferMVP, 0);     // 再录制 draw

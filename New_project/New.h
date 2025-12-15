@@ -23,7 +23,7 @@ public:
 		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
 		D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		};
-		static const D3D12_INPUT_LAYOUT_DESC desc = { inputLayoutStatic, 4 };
+		static const D3D12_INPUT_LAYOUT_DESC desc = { inputLayoutStatic, 4 };  //
 		return desc;
 	}
 	static const D3D12_INPUT_LAYOUT_DESC& getAnimatedLayout()  //这个是用来获取动画网格的输入布局描述符的
@@ -41,6 +41,31 @@ public:
 
 		};
 		static const D3D12_INPUT_LAYOUT_DESC desc = { inputLayoutAnimated, 6 };
+		return desc;
+	}
+	static const D3D12_INPUT_LAYOUT_DESC& getStaticInstancedLayout() {  //这是用于实例化渲染的输入布局描述符
+		static const D3D12_INPUT_ELEMENT_DESC layout[] = {
+			// 顶点数据（和你现在 StaticLayout 一样）
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,  
+			  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },//第2个0代表是从slot0来读取数据
+			{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
+			  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }, //代表也是从slot0来读取数据
+			{ "TANGENT",  0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT,
+			  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT,
+			  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+
+			  // 实例数据：World Matrix ，放到另一个buffer槽位，不在顶点初始化的时候 读取这个槽位
+			  { "WORLD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0,  //这个代表是从slot1来读取数据，GPU是在IASetVertexBuffers的时候知道了哪个槽位绑定了哪个资源，然后按照规定的格式去解析数据
+				D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+			  { "WORLD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16,
+				D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+			  { "WORLD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32,
+				D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+			  { "WORLD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48,
+				D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+		};
+		static const D3D12_INPUT_LAYOUT_DESC desc = { layout, _countof(layout) };
 		return desc;
 	}
 };

@@ -281,7 +281,12 @@ public:
 		rootParameterCBPS.Descriptor.RegisterSpace = 0;
 		rootParameterCBPS.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 		parameters.push_back(rootParameterCBPS);
-	
+		D3D12_ROOT_PARAMETER rootParameterLightCB;
+		rootParameterLightCB.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+		rootParameterLightCB.Descriptor.ShaderRegister = 2; // b2
+		rootParameterLightCB.Descriptor.RegisterSpace = 0;
+		rootParameterLightCB.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+		parameters.push_back(rootParameterLightCB);
 		
 		D3D12_DESCRIPTOR_RANGE srvRange = {};
 		srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;

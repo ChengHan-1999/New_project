@@ -307,7 +307,7 @@ public:
 		UINT bindPoint = textureBindPoints[name];  //只要输入绑定点名字就可以得到bindpoint	，他只是用来告诉根签名我是第几个绑定点，反射是成功了的
 		D3D12_GPU_DESCRIPTOR_HANDLE handle = core->srvHeap.gpuHandle;   //heapoffest是SRVheap中的实际索引？bindpoint是shader rigister索引
 		handle.ptr = handle.ptr + (UINT64)(heapOffset - bindPoint) * (UINT64)core->srvHeap.incrementSize; //先这样写，如果加载不出来再改！改成heapoffset * 后面那一坨
-		core->getCommandList()->SetGraphicsRootDescriptorTable(2, handle);  //这里setgraphicsrootdescriptortable的2是根签名中的槽位，代表把SRV的更新放到这个2号槽位上，至于为什么是2，是因为rootsignature定义的时候srv相关是第3个被放入parameter序列的
+		core->getCommandList()->SetGraphicsRootDescriptorTable(3, handle);  //这里setgraphicsrootdescriptortable的2是根签名中的槽位，代表把SRV的更新放到这个2号槽位上，至于为什么是2，是因为rootsignature定义的时候srv相关是第3个被放入parameter序列的
 	}
 	int find(const std::string& name) {
 		auto it = textures.find(name);

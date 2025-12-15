@@ -1,0 +1,51 @@
+struct VS_INPUT
+{
+    float4 Pos : POSITION;
+    float3 Normal : NORMAL;
+    float3 Tangent : TANGENT;
+    float2 TexCoords : TEXCOORD;
+    uint4 BoneIDs : BONEIDS;
+    float4 BoneWeights : BONEWEIGHTS;
+};
+
+struct PS_INPUT
+{
+	float4 Pos : SV_POSITION;
+    float3 Normal : NORMAL;
+    float3 Tangent : TANGENT;
+    float2 TexCoords : TEXCOORD;
+};
+cbuffer staticMeshBuffer : register(b0)
+{
+    float4x4 W;
+    float4x4 VP;
+    float4x4 bones[256];
+};
+cbuffer LightCB : register(b2)
+{
+    float3 lightDir;
+    float pad0;
+
+    float3 lightColor; 
+    float pad1;
+};
+
+PS_INPUT VS(VS_INPUT input)
+{
+	PS_INPUT output;
+float planeY = 0.0f;
+float4 pos = input.Pos;
+float4x4 transform;
+transform = bones[input.BoneIDs[0]] * input.BoneWeights[0];
+transform += bones[input.BoneIDs[1]] * input.BoneWeights[1];
+transform += bones[input.BoneIDs[2]] * input.BoneWeights[2];
+transform += bones[input.BoneIDs[3]] * input.BoneWeights[3];
+    output.Pos = mul(pos, transform);
+    output.Pos = mul(output.Pos, W);
+    float3 worldpos = output.Pos.xyz;
+    float t = (planeY - worldpos.y) / lightDir.y;
+    worldpos += t * lightDir;	
+worldpos.y += 0.01f;
+output.Pos = mul(float4(worldpos, 1.0f), VP);
+	return output;
+}
