@@ -33,19 +33,29 @@ cbuffer LightCB : register(b2)
 PS_INPUT VS(VS_INPUT input)
 {
 	PS_INPUT output;
-float planeY = 0.0f;
-float4 pos = input.Pos;
-float4x4 transform;
-transform = bones[input.BoneIDs[0]] * input.BoneWeights[0];
-transform += bones[input.BoneIDs[1]] * input.BoneWeights[1];
-transform += bones[input.BoneIDs[2]] * input.BoneWeights[2];
-transform += bones[input.BoneIDs[3]] * input.BoneWeights[3];
-    output.Pos = mul(pos, transform);
-    output.Pos = mul(output.Pos, W);
+	float planeY = 0.0f;
+//float4 pos = input.Pos;
+float4 pos = float4(input.Pos.xyz, 1.0f);
+ 	output.Pos = pos;
+	output.Pos = mul(output.Pos, W);
     float3 worldpos = output.Pos.xyz;
-    float t = (planeY - worldpos.y) / lightDir.y;
-    worldpos += t * lightDir;	
-worldpos.y += 0.01f;
+
+float3 L = normalize(lightDir);
+if (abs(L.y) < 0.01f)
+    {
+        output.Pos = float4(0, 0, 0, 0);
+        return output;
+    }
+
+    float t = (planeY - worldpos.y) / L.y;
+if (t < 0.0f)
+    {
+        output.Pos = float4(0, 0, -1000.0f, 1.0f);
+        return output;
+    }
+t = min(t, 500.0f);
+    worldpos += t * L;	
+worldpos.y = planeY + 0.02f;
 output.Pos = mul(float4(worldpos, 1.0f), VP);
 	return output;
 }

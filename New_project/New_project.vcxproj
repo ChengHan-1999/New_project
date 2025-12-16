@@ -128,6 +128,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Animation.h" />
+    <ClInclude Include="AnimationController.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CGBase.h" />
     <ClInclude Include="Core.h" />

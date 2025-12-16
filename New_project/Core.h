@@ -285,7 +285,7 @@ public:
 		rootParameterLightCB.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 		rootParameterLightCB.Descriptor.ShaderRegister = 2; // b2
 		rootParameterLightCB.Descriptor.RegisterSpace = 0;
-		rootParameterLightCB.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+		rootParameterLightCB.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;  //这里的可见性必须设置为都可以看见，否则再vs里面根本看不到，会报错
 		parameters.push_back(rootParameterLightCB);
 		
 		D3D12_DESCRIPTOR_RANGE srvRange = {};

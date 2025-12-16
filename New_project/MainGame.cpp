@@ -12,6 +12,7 @@
     #include"Animation.h"
     #include"Camera.h"
     #include"Texture.h"
+#include"AnimationController.h"
     struct PRIM_VERTEX  //这个是顶点结构体，用来存放顶点数据
     {
         Vec3 position;
@@ -999,12 +1000,16 @@
         RenderType type_;
 	    Model* model = nullptr;
         Material* material = nullptr;
+		Material* shadowmaterial = nullptr; //每个渲染对象都有自己的材质指针，这样就可以实现一个材质被多个对象实例共享使用它的pso数据
 	    ConstantBuffer cb;  //这个是用来工薪MVP的cb
 	    //ConstantBuffer cbBones;// 这个是用来工薪骨骼矩阵的cb
 	    Matrix worldMatrix;  //每个渲染对象都有自己的世界矩阵,VP矩阵好像不需要存储在这里，因为每个对象的VP矩阵都是一样的，V矩阵是相机类自己定的，可以在实例化这个对象的时候传入初始位置
-	    AnimationInstance* animationInstance = nullptr;  //每个渲染对象都有自己的动画实例数据，这样就可以实现同一个动画模型被多个对象实例化使用，并且每个对象实例有自己的动画播放状态,这个也应该是指针
-	    void init(Core* core, Model* TreeModel, Material* TreeMaterial, bool isanimated,RenderType rendertype) {//我传一个meterial进来的目的是为了bind？那我为什么不直接用psos指针的bind呢
+	    AnimationInstance animationInstance;  //每个渲染对象都有自己的动画实例数据，这样就可以实现同一个动画模型被多个对象实例化使用，并且每个对象实例有自己的动画播放状态,这个也应该是指针
+        AnimationController animatoncontroller;
+        void init(Core* core, Model* TreeModel, Material* TreeMaterial, bool isanimated,RenderType rendertype) {//我传一个meterial进来的目的是为了bind？那我为什么不直接用psos指针的bind呢
 			type_ = rendertype;
+            model = TreeModel;  //把传进来的model指针赋值给自己的model指针，这样就可以实现一个Modlel被多个Tree实例共享使用它的mesh数据
+            material = TreeMaterial;  //把传进来的material指针赋值给自己的material指针，这样就可以实现一个Material被多个Tree实例共享使用它的pso数据
             switch (type_)
             {
                 ////  Normal,
@@ -1013,6 +1018,8 @@
                 case RenderType::Animated:
                 {
 					cb.init(core, sizeof(ConstantBufferStruct_Animation), 2);   //开辟常规的cb槽位，用来存储需要放进去的数据，相当于这里是有了存储空间
+                    animationInstance.init(&(model->animation), 0);  //也就是说animationins是个nullptr
+                    animatoncontroller.init(&animationInstance);  //直接在自己的内部完成初始化
                     break;
 				}
                 case RenderType::Normal:
@@ -1028,8 +1035,7 @@
             default:
                 break;
             }
-		    model = TreeModel;  //把传进来的model指针赋值给自己的model指针，这样就可以实现一个Modlel被多个Tree实例共享使用它的mesh数据
-		    material = TreeMaterial;  //把传进来的material指针赋值给自己的material指针，这样就可以实现一个Material被多个Tree实例共享使用它的pso数据
+
         };
 
     
@@ -1042,7 +1048,7 @@
                 data.W = worldMatrix;  //自己的世界矩阵，所以这个世界矩阵可以直接送外面显示传入
                 data.VP = viewProj;
                 for (int i = 0; i < 256; ++i) {
-                    data.bones[i] = animationInstance->matrices[i];  //把骨骼矩阵数组复制进去
+                    data.bones[i] = animationInstance.matrices[i];  //把骨骼矩阵数组复制进去
                 }
                 cb.update(&data, sizeof(data), slot);  //这个update仅仅是吧资源从cpu端拷贝到了GPU端而已
 
@@ -1108,12 +1114,12 @@
             {
                 //model->texmanager->updateTexturePS(core, "albedo", )
                 //    m->draw(core);
-			    material->bind(core);  //绑定这个renderobject对应的材质的pso  ,我每个renderobject都有自己的material指针，meterial里面包含了这个材质对应的pso管线名称
-                if (material->psoname  == "DinosaurShadowMaterial")
-                {
-                    model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
-                    return;
-                }
+			    //material->bind(core);  //绑定这个renderobject对应的材质的pso  ,我每个renderobject都有自己的material指针，meterial里面包含了这个材质对应的pso管线名称
+                //if (material->psoname  == "DinosaurShadowMaterial")
+                //{
+                //    model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
+                //    return;
+                //}
                 model->texmanager->updateTexturePS(core, "tex", model->texmanager->find(model->textureFilenames[i])); //我严重怀疑是这里出了问题，就是我的texture着色器穿错了，而且这里必须我传进去的资源名称
 			    model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
             }
@@ -1697,17 +1703,21 @@
 		bambooMaterial.LoadShaders(&core, "InstancingVertexShader.hlsl", "TextureShader.txt", "BambooMaterial", texmanager);
 	    animateMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/VSAnim.txt", "C:/Lesson/New_project/New_project/TextureShader.txt", "AnimatedModelPSO",texmanager);  //加载动画模型的材质，肯定要包含psos
 		AnimationMaterial dinosaurShadowMaterial;
-		dinosaurShadowMaterial.LoadShaders(&core, "ShadowVertexShader.txt", "ShadowPixelShader.txt", "DinosaurShadowMaterial", texmanager);
-        AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
-        animatedInstance.init(&modelmanager.getModel("dinosaur")->animation, 0);
+		dinosaurShadowMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/ShadowVertexShader.txt", "C:/Lesson/New_project/New_project/ShadowPixelShader.txt", "DinosaurShadowMaterial", texmanager);
+        //AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
+       
+        //animatedInstance.init(&modelmanager.getModel("dinosaur")->animation, 0);
+		//AnimationController dinosaurController;
+        //dinosaurController.init(&animatedInstance);  //把动画实例指针传递给动画控制器
 	    RenderObject dinosaur;  //创建一个动画模型对象实例
 	    dinosaur.init(&core,modelmanager.getModel("dinosaur"), &animateMaterial, true, RenderType::Animated); //还有初始World变化矩阵 //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
-		dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小
+		dinosaur.shadowmaterial = &dinosaurShadowMaterial; //把恐龙的阴影材质指针传递给恐龙对象
+        dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小
         //RenderObject tree;
         //tree.init(&core, modelmanager.getModel("tree"), &treeMaterial, false, RenderType::Instanced);  //看一下里面的model的meshes传进来没有
 		RenderObject bamboo;
 		bamboo.init(&core, modelmanager.getModel("bamboo"), &bambooMaterial, false, RenderType::Instanced);  //看一下里面的model的meshes传进来没有
-        dinosaur.animationInstance = &animatedInstance;
+        //dinosaur.animationInstance = &animatedInstance;
         //Shaders shaders;
 
 
@@ -1737,7 +1747,7 @@
             if (win.keys[VK_ESCAPE]) break;
             core.beginRenderPass();
             int slot = core.frameIndex(); // 双缓冲
-            lightCB.update(&lightdata, sizeof(lightdata), slot);  //我这里直接把光照数据从CPU端更新到
+            lightCB.update(&lightdata, sizeof(lightdata), slot);  //我这里直接把光照数据从CPU端更新到，还是要更新的
             core.getCommandList()->SetGraphicsRootConstantBufferView(
 				2, lightCB.getGPUAddress(slot));  //将光照数据绑定到根参数槽2上，每个用了光照数据的shader都可以通过这个槽位来访问光照数据
 			//
@@ -1758,18 +1768,19 @@
 		    //我现在来总结一下我的矩阵，现在的A * B是正确的顺序，但是只能是在C++端满足，所以C++端所有的处理是右乘列向量，但是HLSL是左乘行向量的，所以在HLSL更新的矩阵要把矩阵乘的顺序颠倒
             //core.resetCommandList();  // 先 reset
                    // 再录制 clear / barrier 等
-            animatedInstance.update("roar", dt);
-            if (animatedInstance.animationFinished() == true)
-            {
-                animatedInstance.resetAnimationTime();
-            }
+            //animatedInstance.update("idle", dt);
+            //if (animatedInstance.animationFinished() == true)
+            //{
+            //    animatedInstance.resetAnimationTime();
+            //}
+            dinosaur.animatoncontroller.update(dt);  //更新动画控制器，每帧都要更新,不然不会
 		    //核心的关键是HLSL 会将传入的 $\mathbf{VP}$ 矩阵视作转置矩阵，所以会对其进行转置，(AB)的转置等于B的转置乘以A的转置，AB左乘v列向量，和转置后的B的转置乘以A的转置左乘v行向量的结果是一样的。
             //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
             //Matrix W = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
             //animatedModel.draw(&core, &psos, &shaders, &animatedInstance, vp, W);
 		    //dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小,但是这里有问题，因为你一进来之后，每次循环都重新把worldtrix置灰原值
 		    dinosaur.updateCB(&core, vp);  //更新恐龙实例的constantbuffer  //里面的骨骼矩阵cb也会被更新但是不用自己传进去
-		    dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
+		    //dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
 
             //texmanager.loadreflection();
         
@@ -1786,28 +1797,43 @@
             { //由于hlsl的相反乘法，导致我在写变换顺序的时候正好是左边的先开始变换
                 Matrix movematrix = Matrix::translation(Vec3(camForward * dt * cameraspeed));
                 dinosaur.worldMatrix = dinosaur.worldMatrix * movematrix;  //前进的方向是forward方向  * 速度 * 帧间隔时间  //其实所有的移动都是通过平移变换矩阵实现的！所有的运动都可以拆成旋转，平移矩阵的叠合
+				dinosaur.animatoncontroller.setState(States::Run);
             }
 
             else if (win.keyPressed('S'))  //后退
             {
                 //camaraposition -= forward * cameraspeed * deltaTime;
                 dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camForward * dt * cameraspeed));
+                dinosaur.animatoncontroller.setState(States::Run);
             }
             else if (win.keyPressed('A'))  //左移
             {
                 //camaraposition -= right * cameraspeed * deltaTime;
                 dinosaur.worldMatrix =   dinosaur.worldMatrix * Matrix::translation(Vec3(camleft * dt * cameraspeed));
+				dinosaur.animatoncontroller.setState(States::Run);
             }
             else if (win.keyPressed('D'))  //右移
             {
                 //camaraposition += right * cameraspeed * deltaTime;
                dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camleft * dt * cameraspeed));  //因为hlsl是反的，所以所有变换矩阵，涉及到变换顺序的都要反过来
+               dinosaur.animatoncontroller.setState(States::Run);
             }
-            
+            else if (win.keyPressed('V'))
+            {
+                dinosaur.animatoncontroller.setState(States::Roar);
+            }
+            else if (win.mouseButtons[0])//返回左键有没有按下
+            {
+				dinosaur.animatoncontroller.setState(States::Attack);  //但是这里有个问题，就是按住不放会一直触发攻击动画
+            }
+
+			dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
 		    dinosaur.draw(&core);  //画恐龙模型
-			dinosaur.material = &dinosaurShadowMaterial;
-			////dinosaur.material->bind(&core);   //绑定恐龙阴影渲染管线状态，但是这个好麻烦还要重新换一次materail来绑定渲染管线
-			dinosaur.draw(&core);  //画恐龙模型的阴影
+			dinosaur.shadowmaterial->bind(&core);  //绑定恐龙阴影渲染管线状态
+			dinosaur.draw(&core);  //我分别绑定两次材质来画两次恐龙模型，一次是正常渲染，一次是阴影渲染
+			//dinosaur.material = &dinosaurShadowMaterial;  //最关键的原因是你每帧一进来用的是上一帧残存的material指针，所以要变回原来的指针绘制需要重新赋值
+			//dinosaur.material->bind(&core);   //绑定恐龙阴影渲染管线状态，但是这个好麻烦还要重新换一次materail来绑定渲染管线
+			//dinosaur.draw(&core);  //画恐龙模型的阴影
 			//tree.material->bind(&core);  //绑定树的渲染管线状态
 			//tree.updateCB(&core, vp);  //更新树实例的constantbuffer
 			//tree.draw(&core);  //画树模型
