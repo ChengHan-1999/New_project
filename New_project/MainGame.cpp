@@ -13,6 +13,7 @@
     #include"Camera.h"
     #include"Texture.h"
 #include"AnimationController.h"
+#include<random>
     struct PRIM_VERTEX  //这个是顶点结构体，用来存放顶点数据
     {
         Vec3 position;
@@ -33,6 +34,13 @@
         Normal,
         Instanced,
         Animated
+    };
+    struct Particle
+    {
+        Vec3 position;
+        Vec3 velocity;
+        float life;
+        float size;
     };
     //struct STATIC_VERTEX  //这个是静态网格的顶点结构体，就是每一个顶点包含的位置，法线，切线，纹理坐标  ,这个结构为什么说使用了为自定义
     //{
@@ -211,7 +219,7 @@
 		    core->getCommandList()->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);  //这里设置了图元拓扑结构是三角形列表
 			core->getCommandList()->IASetVertexBuffers(0, 2, bufferViews);  //这里代表我要设置两个顶点缓冲区，第一个是顶点缓冲区，第二个是实例化缓冲区，你在拿对应的资源的时候可以从这两个不同的slot去拿，起始槽位与总共囊括的槽位
 			core->getCommandList()->IASetIndexBuffer(&ibView);  //这是设置索引缓冲区数据来源的VRAM
-			core->getCommandList()->DrawIndexedInstanced(numMeshIndices, numMeshInstances, 0, 0, 0);     //
+			core->getCommandList()->DrawIndexedInstanced(numMeshIndices, numMeshInstances, 0, 0, 0);     //这里就是按顶点索引来画网格，
 
             //core->getCommandList()->DrawInstanced(3, 1, 0, 0);
         }
@@ -737,6 +745,46 @@
 		    mesh.drawRange(core, 30, 6);  //最后渲染的应该是底面，就是ny，就是y.png
         }
     };
+  //  struct ParticleCB
+  //  {
+  //      Matrix VP;
+  //      Vec3 camRight; float pad0;
+  //      Vec3 camUp;    float pad1;
+  //  };
+  //  struct QuadVertex
+  //  {
+  //      Vec3 corner;
+  //      float tu;
+		//float tv;
+  //  };
+
+  //  struct ParticleInstance
+  //  {
+  //      Vec3 center;
+  //      float size;
+  //  };
+  //  class ParticleSystem
+  //  {
+  //      Mesh mesh;                     // 只负责 quad + IB
+  //      ID3D12Resource* instanceBuffer;
+  //      D3D12_VERTEX_BUFFER_VIEW instanceView;
+
+  //      ConstantBuffer particleCB;
+  //      PSOManager* psos;
+  //      TextureManager* textureManager;
+  //      int textureID;
+  //      void init(Core* core)
+  //      {
+  //          std::vector<QuadVertex> vertices;
+		//	vertices.push_back(QuadVertex{ Vec3(-0.5f, -0.5f, 0.0f), 0.0f, 1.0f });
+		//	vertices.push_back(QuadVertex{ Vec3(0.5f, -0.5f, 0.0f), 1.0f, 1.0f });
+		//	vertices.push_back(QuadVertex{ Vec3(-0.5f, 0.5f, 0.0f), 0.0f, 0.0f });
+		//	vertices.push_back(QuadVertex{ Vec3(0.5f, 0.5f, 0.0f), 1.0f, 0.0f });
+  //          std::vector<unsigned int> indices;
+		//	indices = { 0, 1, 2, 2, 1, 3 };  //这是顶点的绘制顺序
+
+  //      }
+  //  };
     class Plane
     {
     public:
@@ -850,7 +898,7 @@
                 buffer << file.rdbuf();
                 return buffer.str();
             }
-            virtual void LoadShaders(Core* core,std::string VSname,std::string PSname,std::string _psoname, TextureManager& texmanager)  //防止硬编码所以我传shader文件进来读
+            virtual void LoadShaders(Core* core,std::string VSname,std::string PSname,std::string _psoname, TextureManager& texmanager, const D3D12_INPUT_LAYOUT_DESC& inputLayout)  //防止硬编码所以我传shader文件进来读
             {
                 // Compile Vertex shader
 			    psoname = _psoname;  //把pso名字存储下来
@@ -887,7 +935,7 @@
                 reflectionPS->GetDesc(&descPS);
                 texmanager.loadreflection(reflectionPS, descPS);
                 reflectionPS->Release();//释放反射接口,不然会泄露
-                psos.createPSO(core, _psoname, vertexShader, pixelShader, VertexLayoutCache::getStaticInstancedLayout());  //创建pso,并取名为Plane
+                psos.createPSO(core, _psoname, vertexShader, pixelShader,inputLayout);  //创建pso,并取名为Plane
 
                   //zhe
             }
@@ -1254,7 +1302,7 @@
 	    TextureManager* texmanager;  //材质管理器里面包含一个纹理管理器指针，因为材质加载时会用到纹理管理器来加载纹理,但是这个纹理管理的主要作用就是反射当前的资源名称，获取绑定点
         public:
         std::map<std::string, Material*> materials;  //材质名称对应材质指针，用来取出某个对象，比如dinosaur对应的材质指针
-        Material* loadMaterial(Core* core, const std::string& VSname, const std::string& PSname, const std::string& materialname, bool isanimated, TextureManager& texmanager)  //这个函数用来加载材质数据，并返回材质指针，第二个是文件名
+        Material* loadMaterial(Core* core, const std::string& VSname, const std::string& PSname, const std::string& materialname, bool isanimated, TextureManager& texmanager, const D3D12_INPUT_LAYOUT_DESC& inputLayout)  //这个函数用来加载材质数据，并返回材质指针，第二个是文件名
         {
             Material* material;
             if (isanimated)
@@ -1266,7 +1314,7 @@
             else
             {
                 material = new Material();
-                material->LoadShaders(core, VSname, PSname, materialname,texmanager);  //传入材质名称作为pso名称，静止物体也需要纹理贴图吧？
+                material->LoadShaders(core, VSname, PSname, materialname,texmanager, inputLayout);  //传入材质名称作为pso名称，静止物体也需要纹理贴图吧？
             }
 		    materials[materialname] = material;  //把新加载的材质存储到map中，但是其实这个materialname就是pso名称
             return material;  //加载完毕，返回材质指针，并且map中已经存储了该材质
@@ -1656,54 +1704,50 @@
 	    modelmanager.texmanager = &texmanager;  //把纹理管理器指针传递给模型管理器
 	    modelmanager.loadModel(&core, "Models/TRex.gem", "dinosaur", true);  //通过模型管理器加载动画模型
         std::vector<INSTANCE> fourmatrix;
-        Vec3 positions[4] =
-        {
-            Vec3(-5, 0, -5),
-            Vec3(5, 0, -5),
-            Vec3(-5, 0,  5),
-            Vec3(5, 0,  5)
-        }; 
+        //Vec3 positions[4] =
+        //{
+        //    Vec3(-5, 0, -5),
+        //    Vec3(5, 0, -5),
+        //    Vec3(-5, 0,  5),
+        //    Vec3(5, 0,  5)
+        //}; 
         std::vector<INSTANCE> fourmatrix_2;
-        Vec3 positions_2[4] =
+        fourmatrix_2.reserve(100);
+        std::random_device rd;
+        std::mt19937 gen(rd());
+
+        // XZ 范围：[-500, 500]
+        std::uniform_real_distribution<float> distPos(-200.0f, 200.0f);
+        for (int i = 0; i < 100; i++)
         {
-            Vec3(-10, 0, -10),
-            Vec3(10, 0, -10),
-            Vec3(-10, 0,  10),
-            Vec3(10, 0,  10)
-        };
-        for (int i = 0; i < 4; i++)
-        {
-            // 平移矩阵
-            Matrix T = Matrix::translation(positions[i]);  //通过偏移的x，y，z值直接创建平移矩阵
-            Matrix S = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
-            INSTANCE inst;
-			inst.w = S *  T;  //先缩放再平移  从做到右的变换顺序
-            fourmatrix.push_back(inst);
-            // 最终实例矩阵
-            //fourmatrix[i].w = T;
-        }        
-        for (int i = 0; i < 4; i++)
-        {
-            // 平移矩阵
-            Matrix T = Matrix::translation(positions_2[i]);  //通过偏移的x，y，z值直接创建平移矩阵
-            Matrix S = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
+            float x = distPos(gen);
+			float z = distPos(gen);
+            Vec3 position = Vec3(x, 0.0f, z);
+            Matrix T = Matrix::translation(position);
+            Matrix S = Matrix::ScaleMatrix(Vec3(0.1f, 0.1f, 0.1f));
             INSTANCE inst;
             inst.w = S * T;  //先缩放再平移  从做到右的变换顺序
-            fourmatrix_2.push_back(inst);
-            // 最终实例矩阵
-            //fourmatrix[i].w = T;
+			fourmatrix_2.push_back(inst);
         }
-		//modelmanager.loadModel(&core, "Models/acacia_003.gem", "tree", false,&fourmatrix);  //通过模型管理器加载静态模型
+		RenderObject* monster = new RenderObject();  //创建一个动画模型对象实例的指针
+		AnimationMaterial CowMaterial;
+		CowMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/VSAnim.txt", "C:/Lesson/New_project/New_project/TextureShader.txt", "CowMaterial", texmanager);  //加载动画模型的材质，肯定要包含psos
+		modelmanager.loadModel(&core, "Models/Cow-white.gem", "cow", true);  //通过模型管理器加载动画模型
         modelmanager.loadModel(&core, "Models/bamboo.gem", "bamboo", false, &fourmatrix_2); //在加载bamboo的时候空了？
 	    AnimationMaterial animateMaterial; //如果我断点打在这一行代表还没有进入这一行执行，前面行的内容已经执行完了，在执行这一行之前暂停
 	    //animateMaterial.texmanager = &texmanager;
 		//Material treeMaterial;
 		Material bambooMaterial;
 		//treeMaterial.LoadShaders(&core, "InstancingVertexShader.hlsl", "TextureShader.txt", "TreeMaterial",texmanager);
-		bambooMaterial.LoadShaders(&core, "InstancingVertexShader.hlsl", "TextureShader.txt", "BambooMaterial", texmanager);
+		bambooMaterial.LoadShaders(&core, "InstancingVertexShader.hlsl", "TextureShader.txt", "BambooMaterial", texmanager, VertexLayoutCache::getStaticInstancedLayout());
+		//Material bambooShadowMaterial;
+		//bambooShadowMaterial.LoadShaders(&core, "ParticleVertexShader.hlsl", "ShadowPixelShader.txt", "BambooShadowMaterial", texmanager, VertexLayoutCache::getStaticInstancedLayout());
 	    animateMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/VSAnim.txt", "C:/Lesson/New_project/New_project/TextureShader.txt", "AnimatedModelPSO",texmanager);  //加载动画模型的材质，肯定要包含psos
 		AnimationMaterial dinosaurShadowMaterial;
 		dinosaurShadowMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/ShadowVertexShader.txt", "C:/Lesson/New_project/New_project/ShadowPixelShader.txt", "DinosaurShadowMaterial", texmanager);
+		AnimationMaterial cowShadowMaterial;
+		cowShadowMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/ShadowVertexShader.txt", "C:/Lesson/New_project/New_project/ShadowPixelShader.txt", "CowShadowMaterial", texmanager);
+        //dinosaurShadowMaterial.LoadShaders(&core, "ShadowVertexShader.txt", "ShadowPixelShader.txt", "BambooMaterial", texmanager);
         //AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
        
         //animatedInstance.init(&modelmanager.getModel("dinosaur")->animation, 0);
@@ -1713,10 +1757,14 @@
 	    dinosaur.init(&core,modelmanager.getModel("dinosaur"), &animateMaterial, true, RenderType::Animated); //还有初始World变化矩阵 //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
 		dinosaur.shadowmaterial = &dinosaurShadowMaterial; //把恐龙的阴影材质指针传递给恐龙对象
         dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小
+		monster->init(&core, modelmanager.getModel("cow"), &CowMaterial, true, RenderType::Animated); //还有初始World变化矩阵 //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
+		monster->worldMatrix = Matrix::ScaleMatrix(Vec3(0.03f, 0.03f, 0.03f)); //把牛模型缩小
+		monster->shadowmaterial = &cowShadowMaterial; //把牛的阴影材质指针传递给牛对象
         //RenderObject tree;
         //tree.init(&core, modelmanager.getModel("tree"), &treeMaterial, false, RenderType::Instanced);  //看一下里面的model的meshes传进来没有
 		RenderObject bamboo;
 		bamboo.init(&core, modelmanager.getModel("bamboo"), &bambooMaterial, false, RenderType::Instanced);  //看一下里面的model的meshes传进来没有
+		//bamboo.shadowmaterial = &bambooShadowMaterial; //把竹子的阴影材质指针传递给竹子对象
         //dinosaur.animationInstance = &animatedInstance;
         //Shaders shaders;
 
@@ -1726,7 +1774,7 @@
         //AnimationInstance animatedInstance;  //这里是创建了渲染实例，渲染实例？
         //animatedInstance.init(&animatedModel.animation, 0);
         Material BaseMaterial;
-        BaseMaterial.LoadShaders(&core,"VertexShader.hlsl","PixelShader.hlsl","BasePSO",texmanager);
+        BaseMaterial.LoadShaders(&core, "VertexShader.hlsl", "PixelShader.hlsl", "BasePSO", texmanager, VertexLayoutCache::getStaticLayout());
         Model PlaneModel;
 
 	    Camera camera;
@@ -1736,7 +1784,8 @@
 		win.initmouse();  //初始化鼠标位置在窗口中心,防止产生剧烈偏移
 		int lastmousex = win.getMouseInWindowX();//用刚进来时候的把鼠标位置存下来，作为最初的上次鼠标位置，但是如果的鼠标一开始就不在中心位置的话会有问题
 		int lastmousey = win.getMouseInWindowY();
-
+        Vec3 dinosaurPos = Vec3(0, 0, 0);
+        float dinosaurYaw = 0.0f;
         while (true)
         {
             float dt = timer.dt();
@@ -1759,11 +1808,16 @@
 		    lastmousex = win.getMouseInWindowX();  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
 			lastmousey = win.getMouseInWindowY();
             camera.updateCameraPosition(win,dt,dx,dy);  //worldmatrix的本质是什么，是这个对象的换
-            Vec3 dinosaurPos(
-                dinosaur.worldMatrix.m[3],
-                dinosaur.worldMatrix.m[7],
-                dinosaur.worldMatrix.m[11]
-            );
+            //Vec3 dinosaurPos(
+            //    dinosaur.worldMatrix.m[3],
+            //    dinosaur.worldMatrix.m[7],
+            //    dinosaur.worldMatrix.m[11]
+            //);
+            Matrix S = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
+            Matrix R = Matrix::RotationMatrixY(camera.yaw);
+            Matrix T = Matrix::translation(dinosaurPos);
+
+            dinosaur.worldMatrix = S * R * T;
             Matrix vp =  camera.getViewMatrix(dinosaurPos)* Matrix::ProjectionMatrix(120.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f);
 		    //我现在来总结一下我的矩阵，现在的A * B是正确的顺序，但是只能是在C++端满足，所以C++端所有的处理是右乘列向量，但是HLSL是左乘行向量的，所以在HLSL更新的矩阵要把矩阵乘的顺序颠倒
             //core.resetCommandList();  // 先 reset
@@ -1795,27 +1849,31 @@
             Vec3 camleft = Vec3(0, 1, 0).Cross(camForward).normalize();
             if (win.keyPressed('W'))  //前进
             { //由于hlsl的相反乘法，导致我在写变换顺序的时候正好是左边的先开始变换
-                Matrix movematrix = Matrix::translation(Vec3(camForward * dt * cameraspeed));
-                dinosaur.worldMatrix = dinosaur.worldMatrix * movematrix;  //前进的方向是forward方向  * 速度 * 帧间隔时间  //其实所有的移动都是通过平移变换矩阵实现的！所有的运动都可以拆成旋转，平移矩阵的叠合
-				dinosaur.animatoncontroller.setState(States::Run);
+/*                Matrix movematrix = Matrix::translation(Vec3(camForward * dt * cameraspeed));
+                dinosaur.worldMatrix = dinosaur.worldMatrix * movematrix*/;  //前进的方向是forward方向  * 速度 * 帧间隔时间  //其实所有的移动都是通过平移变换矩阵实现的！所有的运动都可以拆成旋转，平移矩阵的叠合
+                dinosaurPos += camForward * dt * cameraspeed;
+                dinosaur.animatoncontroller.setState(States::Run);
             }
 
             else if (win.keyPressed('S'))  //后退
             {
                 //camaraposition -= forward * cameraspeed * deltaTime;
-                dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camForward * dt * cameraspeed));
+             /*   dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camForward * dt * cameraspeed));*/
+                dinosaurPos -= camForward * dt * cameraspeed;
                 dinosaur.animatoncontroller.setState(States::Run);
             }
             else if (win.keyPressed('A'))  //左移
             {
                 //camaraposition -= right * cameraspeed * deltaTime;
-                dinosaur.worldMatrix =   dinosaur.worldMatrix * Matrix::translation(Vec3(camleft * dt * cameraspeed));
+            /*    dinosaur.worldMatrix =   dinosaur.worldMatrix * Matrix::translation(Vec3(camleft * dt * cameraspeed));*/
+                dinosaurPos += camleft* dt* cameraspeed;
 				dinosaur.animatoncontroller.setState(States::Run);
             }
             else if (win.keyPressed('D'))  //右移
             {
                 //camaraposition += right * cameraspeed * deltaTime;
-               dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camleft * dt * cameraspeed));  //因为hlsl是反的，所以所有变换矩阵，涉及到变换顺序的都要反过来
+               //dinosaur.worldMatrix = dinosaur.worldMatrix * Matrix::translation(Vec3(-camleft * dt * cameraspeed));  //因为hlsl是反的，所以所有变换矩阵，涉及到变换顺序的都要反过来
+               dinosaurPos -= camleft * dt * cameraspeed;
                dinosaur.animatoncontroller.setState(States::Run);
             }
             else if (win.keyPressed('V'))
@@ -1837,9 +1895,16 @@
 			//tree.material->bind(&core);  //绑定树的渲染管线状态
 			//tree.updateCB(&core, vp);  //更新树实例的constantbuffer
 			//tree.draw(&core);  //画树模型
+			monster->updateCB(&core, vp);  //更新牛实例的constantbuffer
+			monster->material->bind(&core);//传指针不要传类对象，因为会造成拷贝,不用更新牛的cb吗？
+			monster->draw(&core);  //画牛模型
+			monster->shadowmaterial->bind(&core);  //绑定牛阴影渲染管线状态
+			monster->draw(&core);  //我分别绑定两次材质来画两次牛模型，一次是正常渲染，一次是阴影渲染
             bamboo.material->bind(&core);  //绑定树的渲染管线状态
             bamboo.updateCB(&core, vp);  //更新树实例的constantbuffer
             bamboo.draw(&core);  //画树模型
+			//bamboo.shadowmaterial->bind(&core);  //绑定竹子阴影渲染管线状态
+			bamboo.draw(&core);  //我分别绑定两次竹子模型，一次是正常渲染，一次是阴影渲染
             //在相机中我们需要人为规定一个映射比例，来表示在屏幕上鼠标移动的像素距离对应于相机旋转的角度变化
             //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
            

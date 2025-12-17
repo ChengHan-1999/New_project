@@ -26,6 +26,35 @@ public:
 		static const D3D12_INPUT_LAYOUT_DESC desc = { inputLayoutStatic, 4 };  //
 		return desc;
 	}
+	static D3D12_INPUT_LAYOUT_DESC getShadowInstancedLayout()  
+	{
+		static D3D12_INPUT_ELEMENT_DESC layout[] =
+		{
+			// Slot 0：Mesh vertex
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,
+			  0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+
+			  // Slot 1：Instance world matrix
+			  { "INSTANCE_W0", 0, DXGI_FORMAT_R32G32B32A32_FLOAT,
+				1, 0,  D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+
+			  { "INSTANCE_W1", 0, DXGI_FORMAT_R32G32B32A32_FLOAT,
+				1, 16, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+
+			  { "INSTANCE_W2", 0, DXGI_FORMAT_R32G32B32A32_FLOAT,
+				1, 32, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+
+			  { "INSTANCE_W3", 0, DXGI_FORMAT_R32G32B32A32_FLOAT,
+				1, 48, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 },
+		};
+		//我懂了你这个跟那个是一样的，这个就是同时在读两个槽位的顶点数据，一个是mesh的顶点数据，一个是实例化的矩阵数据，现在我要改成一个在读quad的顶点数据，另一个读每一个instance的中心位置和大小数据
+		static D3D12_INPUT_LAYOUT_DESC desc =
+		{
+			layout,
+			_countof(layout)
+		};
+		return desc;
+	}
 	static const D3D12_INPUT_LAYOUT_DESC& getAnimatedLayout()  //这个是用来获取动画网格的输入布局描述符的
 	{
 		static const D3D12_INPUT_ELEMENT_DESC inputLayoutAnimated[] =

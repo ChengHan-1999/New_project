@@ -30,8 +30,8 @@ public:
 		//Matrix::RotationMatrixY(yaw)
 		Vec3 rotatedOffset =
 			Matrix::RotationMatrixY(yaw).mulPoint(Offset);  //这是将偏移量围绕y轴旋转yaw角度后的新偏移量，加上这个偏移量才是正确的相机位置
-		camaraposition = heroposition + Vec3(0, 2, 5) + rotatedOffset;
-		return  Matrix::Lookat(camaraposition, heroposition + Vec3(0,2,5), Vec3(0, 1, 0));  //这个就是初始的视图矩阵 ，记住我现在所有的变化的都是先变化的下载左边
+		camaraposition = heroposition  + Vec3(0, 5, 0 )+  rotatedOffset;
+		return  Matrix::Lookat(camaraposition, heroposition + Vec3(0, 5,0 ), Vec3(0, 1, 0));  //这个就是初始的视图矩阵 ，记住我现在所有的变化的都是先变化的下载左边
 		//Matrix::Lookat(camaraposition, heroposition + forward, Vec3(0, 1, 0));  //这个就是初始的视图矩阵
 	}
 	void updateCameraPosition(const Window& canvas, float deltaTime,float dx,float dy)
