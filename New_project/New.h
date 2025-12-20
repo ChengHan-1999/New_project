@@ -97,6 +97,50 @@ public:
 		static const D3D12_INPUT_LAYOUT_DESC desc = { layout, _countof(layout) };
 		return desc;
 	}
+	static const D3D12_INPUT_LAYOUT_DESC& getParticleLayout()
+	{
+		static const D3D12_INPUT_ELEMENT_DESC layout[] =
+		{
+			// ---------- slot 0 : Quad 顶点 ----------
+			{
+				"CORNER", 0,
+				DXGI_FORMAT_R32G32B32_FLOAT,
+				0, 0,
+				D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+				0
+			},
+			{
+				"TEXCOORD", 0,
+				DXGI_FORMAT_R32G32_FLOAT,
+				0, 12,
+				D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+				0
+			},
+
+			// ---------- slot 1 : Particle Instance ----------
+			{
+				"CENTER", 0,
+				DXGI_FORMAT_R32G32B32_FLOAT,
+				1, 0,
+				D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+				1
+			},
+			{
+				"SIZE", 0,
+				DXGI_FORMAT_R32_FLOAT,
+				1, 12,
+				D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+				1
+			},
+		};
+
+		static const D3D12_INPUT_LAYOUT_DESC desc =
+		{
+			layout,
+			_countof(layout)
+		};
+		return desc;
+	}
 };
 
 

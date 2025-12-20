@@ -30,18 +30,40 @@
       float pad0; 
       Vec3 lightColor; 
       float pad1; };  //我在初始化的时候不穿值，相当于pad0，pad1都是垃圾值，但是确实我也用不到
+    struct alignas(16) ParticleCB
+    {
+        Matrix VP;
+        Vec3 camRight; float pad0 = 0;
+        Vec3 camUp;    float pad1 = 0 ;
+    };
     enum class RenderType
     {
         Normal,
         Instanced,
         Animated
     };
-    struct Particle
+    //struct Particle
+    //{
+    //    Vec3 position;
+    //    Vec3 velocity;
+    //    float life;
+    //    float size;
+    //};
+    struct QuadVertex
     {
-        Vec3 position;
+        Vec3 corner;
+        float tu;
+        float tv;
+    };
+
+    struct ParticleInstance
+    {
+        Vec3 center;
+        float size;
         Vec3 velocity;
         float life;
-        float size;
+
+        bool alive;
     };
     //struct STATIC_VERTEX  //这个是静态网格的顶点结构体，就是每一个顶点包含的位置，法线，切线，纹理坐标  ,这个结构为什么说使用了为自定义
     //{
@@ -187,14 +209,24 @@
             init(core, &vertices[0], sizeof(ANIMATED_VERTEX), vertices.size(), &indices[0], indices.size());
             inputLayoutDesc = VertexLayoutCache::getAnimatedLayout();
         }
-		void initInstanceBuffer(Core* core, std::vector<INSTANCE>* instances)  //这个函数用来初始化实例化缓冲区,分配一个GPU资源，并上传数据
+        void initParticleMesh( Core* core,std::vector<QuadVertex> quadVertices, std::vector<unsigned int> indices,std::vector<ParticleInstance> particles )
+        {
+            // slot 0：quad 顶点
+            init( core,&quadVertices[0], sizeof(QuadVertex), quadVertices.size(), &indices[0], indices.size()
+            );
+
+            // slot 1：粒子实例
+            initInstanceBuffer(core, &particles); //都不用if，肯定是有的
+        }
+        template<typename T>
+		void initInstanceBuffer(Core* core, std::vector<T>* instances)  //这个函数用来初始化实例化缓冲区,分配一个GPU资源，并上传数据  //至少要恢复这个能让树画出来
         {
             D3D12_HEAP_PROPERTIES heapprops = {};
-            heapprops.Type = D3D12_HEAP_TYPE_DEFAULT;
+            heapprops.Type = D3D12_HEAP_TYPE_UPLOAD; //这是defalut，所以我并不是每帧都能重新写入的
             heapprops.CreationNodeMask = 1;
             heapprops.VisibleNodeMask = 1;
             D3D12_RESOURCE_DESC ibDesc = {};
-            ibDesc.Width = instances->size() * sizeof(INSTANCE);
+            ibDesc.Width = instances->size() * sizeof(T);
             ibDesc.Height = 1;
             ibDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
             ibDesc.DepthOrArraySize = 1;
@@ -202,13 +234,25 @@
             ibDesc.SampleDesc.Count = 1;
             ibDesc.SampleDesc.Quality = 0;
             ibDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-            core->device->CreateCommittedResource(&heapprops, D3D12_HEAP_FLAG_NONE, &ibDesc,
-                D3D12_RESOURCE_STATE_COMMON, NULL, IID_PPV_ARGS(&instanceBuffer));
-			core->uploadResource(instanceBuffer, instances->data(), instances->size() * sizeof(INSTANCE),  //instances是一个指针，所以要传它的size需要解引用,本身传进来的就是一个指针
-                D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+            core->device->CreateCommittedResource(
+                &heapprops,
+                D3D12_HEAP_FLAG_NONE,
+                &ibDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, // ⚠️ 不是 COMMON
+                nullptr,
+                IID_PPV_ARGS(&instanceBuffer)
+            );
+            void* mapped = nullptr;
+            D3D12_RANGE readRange = { 0, 0 };
+
+            // ✅ 关键：把实例数据真正写进去
+            instanceBuffer->Map(0, &readRange, &mapped);
+            memcpy(mapped, instances->data(), instances->size() * sizeof(T));
+			//core->uploadResource(instanceBuffer, instances->data(), instances->size() * sizeof(T),  //instances是一个指针，所以要传它的size需要解引用,本身传进来的就是一个指针
+   //             D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
             instanceView.BufferLocation = instanceBuffer->GetGPUVirtualAddress();
-            instanceView.StrideInBytes = sizeof(INSTANCE);
-            instanceView.SizeInBytes = instances->size() * sizeof(INSTANCE);
+            instanceView.StrideInBytes = sizeof(T);
+            instanceView.SizeInBytes = instances->size() * sizeof(T);
 			numMeshInstances = instances->size();
 		}
         void draw(Core* core)  //好像根本不需要那个mesh类
@@ -746,46 +790,175 @@
 		    mesh.drawRange(core, 30, 6);  //最后渲染的应该是底面，就是ny，就是y.png
         }
     };
-  //  struct ParticleCB
-  //  {
-  //      Matrix VP;
-  //      Vec3 camRight; float pad0;
-  //      Vec3 camUp;    float pad1;
-  //  };
-  //  struct QuadVertex
-  //  {
-  //      Vec3 corner;
-  //      float tu;
-		//float tv;
-  //  };
 
-  //  struct ParticleInstance
-  //  {
-  //      Vec3 center;
-  //      float size;
-  //  };
-  //  class ParticleSystem
-  //  {
-  //      Mesh mesh;                     // 只负责 quad + IB
-  //      ID3D12Resource* instanceBuffer;
-  //      D3D12_VERTEX_BUFFER_VIEW instanceView;
+    class ParticleSystem
+    {
+    public:
+        Mesh mesh;                     // 只负责 quad + IB
+        //ID3D12Resource* instanceBuffer;
+        //D3D12_VERTEX_BUFFER_VIEW instanceView;
+        ID3DBlob* vertexShader;
+        ID3DBlob* pixelShader;
+        ConstantBuffer particleCB;
+        PSOManager* psos;
+        TextureManager* textureManager;
+        std::vector<ParticleInstance> particles;
+        std::vector<ParticleInstance> aliveParticles;  //每帧变化，重新存入buffer
+        ParticleInstance* mappedInstanceData = nullptr;
+        int numMeshInstances;
+        int ParticlesNum = 100;  ///这个是粒子数变量
+        int textureID;
+        ConstantBuffer constantBuffer;
+        std::mt19937 gen;
+        std::uniform_real_distribution<float> dis{ -1.0f, 1.0f };
+        std::uniform_real_distribution<float> dist{ 3.0f, 6.0f };
+        void init(Core* core)
+        {
+            std::random_device rd;
+            gen.seed(rd());
+            std::vector<QuadVertex> vertices;  //这个里面存放的是quad顶点
+			vertices.push_back(QuadVertex{ Vec3(-0.5f, -0.5f, 0.0f), 0.0f, 1.0f });  //uv也是已经定好了的，这样我就可以每一个小方块贴一个贴图
+			vertices.push_back(QuadVertex{ Vec3(0.5f, -0.5f, 0.0f), 1.0f, 1.0f });
+			vertices.push_back(QuadVertex{ Vec3(-0.5f, 0.5f, 0.0f), 0.0f, 0.0f });
+			vertices.push_back(QuadVertex{ Vec3(0.5f, 0.5f, 0.0f), 1.0f, 0.0f });
+            std::vector<unsigned int> indices;
+			indices = { 0, 1, 2, 2, 1, 3 };  //这是顶点的绘制顺序  //然后把这些顶点压入到heap堆上利用GPU来进行访问
+            particles.resize(ParticlesNum);  //我只用这个来开创资源，后面在恐龙奔跑的时候不断往instancingbuffer里面写入粒子
+           
+            mesh.initParticleMesh(core, vertices, indices, particles);  //这是开创了两个vb，第一个vb不更新数据，第二个vb要不断根据粒子状态来写入到vb里，先把每一个粒子生命写为false，完整粒子池
+            mesh.instanceBuffer->Map(0, nullptr, (void**)&mappedInstanceData);
+            for (auto& m : particles)
+            {
+                m.alive = false; // 这个决定了粒子生命状态以及要不要让GPU进行渲染？
+            }
+            //GPUbuffer的容量和本帧使用的实例数量是两回事
+            textureID = textureManager->load(core, "Models/MudTexture.png");  //这里加载平面的纹理
+            LoadShaders(core);
+            constantBuffer.init(core, sizeof(ParticleCB), 2);  //这里的结构要变
+        }
+        void spawn(const Vec3& dinosaurPos)  //这个是在每次奔跑的时候开始触发粒子生成，给每个粒子生成一个初始的速度，生命周期，和大小
+        {
 
-  //      ConstantBuffer particleCB;
-  //      PSOManager* psos;
-  //      TextureManager* textureManager;
-  //      int textureID;
-  //      void init(Core* core)
-  //      {
-  //          std::vector<QuadVertex> vertices;
-		//	vertices.push_back(QuadVertex{ Vec3(-0.5f, -0.5f, 0.0f), 0.0f, 1.0f });
-		//	vertices.push_back(QuadVertex{ Vec3(0.5f, -0.5f, 0.0f), 1.0f, 1.0f });
-		//	vertices.push_back(QuadVertex{ Vec3(-0.5f, 0.5f, 0.0f), 0.0f, 0.0f });
-		//	vertices.push_back(QuadVertex{ Vec3(0.5f, 0.5f, 0.0f), 1.0f, 0.0f });
-  //          std::vector<unsigned int> indices;
-		//	indices = { 0, 1, 2, 2, 1, 3 };  //这是顶点的绘制顺序
+            for (auto& p : particles)
+            {
+                if (!p.alive)
+                {
+                    p.alive = true;
+                    p.center = dinosaurPos + Vec3(0, 0.2f, 0); // 每个粒子的center都是在恐龙脚底开始
+                    p.velocity = Vec3(
+                        dis(gen),
+                        dist(gen),
+                        dis(gen)
+                    );  //这样生成
+                    p.life = 0.8f;
+                    p.size = 0.3f;
+                    break;
+                }
+            }
+        }
+        void update(float dt,Core* core)   //update是在对particle中的所有原始粒子进行遍历和更正，但是每一帧放入存活粒子的容器应该是不一样的
+        {
+            aliveParticles.clear();  //进行存活粒子清除
+            for (auto& p : particles)
+            {
+                if (!p.alive) continue;  
 
-  //      }
-  //  };
+                p.life -= dt;
+                if (p.life <= 0)
+                {
+                    p.alive = false;
+                    continue;
+                }
+
+                p.velocity.y -= 9.8f * dt;   // 重力
+                p.center += p.velocity * dt;
+            }//第一个循环给每个粒子进行位置移动，然后用来判别粒子生命周期
+            for (auto& p : particles)
+            {
+                if (p.alive)
+                    aliveParticles.push_back(p);
+            }  //上一个循环全部完成后把所有存活粒子压入到存活粒子容器
+            //然后把存活的粒子压入到buffer
+            if (!aliveParticles.empty())
+            {
+                memcpy(
+                    mappedInstanceData,
+                    aliveParticles.data(),
+                    aliveParticles.size() * sizeof(ParticleInstance)
+                );
+            }
+
+            mesh.numMeshInstances = aliveParticles.size();  //在这里改数量，不在draw里该数量
+        }
+        std::string ReadFile(std::string filename)
+        {
+            std::ifstream file(filename);
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            return buffer.str();
+        }
+        void LoadShaders(Core* core)
+        {
+            // Compile Vertex shader
+            std::string vsSource = ReadFile("ParticleVS.txt");
+
+            ID3DBlob* status;
+            HRESULT hr = D3DCompile(vsSource.c_str(), strlen(vsSource.c_str()), NULL,
+                NULL, NULL, "VS", "vs_5_0", 0, 0, &vertexShader, &status);
+
+            // CHeck if vertex shader compiles
+            if (FAILED(hr))
+            {
+                if (status)
+                    OutputDebugStringA((char*)status->GetBufferPointer());
+            }
+
+            // Compile pixel shader
+            std::string psSource = ReadFile("ParticlePS.txt");
+
+            hr = D3DCompile(psSource.c_str(), strlen(psSource.c_str()), NULL, NULL,
+                NULL, "PS", "ps_5_0", 0, 0, &pixelShader, &status);
+
+            // CHeck if pixel shader compiles
+            if (FAILED(hr))
+            {
+                if (status)
+                    OutputDebugStringA((char*)status->GetBufferPointer());
+            }
+            psos->createPSO(core, "Particle", vertexShader, pixelShader, VertexLayoutCache::getParticleLayout());  //创建pso,并取名为Plane
+
+
+        }
+        void ParticleupdateCB(Core* core, const Matrix& vp,const Vec3& CamUP,const Vec3& Camright)  //记得一定要在draw之前更新cb，其他的pso不用管
+        {
+            int slot = core->frameIndex();
+            ParticleCB data;
+            data.VP = vp;
+            data.camUp = CamUP;
+            data.camRight = Camright;
+            constantBuffer.update(&data, sizeof(data), slot);  //这个update仅仅是吧资源从cpu端拷贝到了GPU端而已
+
+                core->getCommandList()->SetGraphicsRootConstantBufferView(
+                    0, constantBuffer.getGPUAddress(slot));  //从0槽位读取MVP矩阵以及骨骼矩阵数据
+        }
+        void draw(Core* core)  //要从cpu端传进来一个每帧更新值完毕的结构体然后重新写入到cb槽口
+        {
+
+            //core->beginRenderPass();//外层没有啊，我这里可以调用啊
+
+            //constantBuffer.update(cb, sizeof(ParticleCB), core->frameIndex());  //每一帧画之前都要更新constantbuffer的数据，cb就是更新完了当前帧要穿进来的MVP矩阵
+
+            //core->getCommandList()->SetGraphicsRootConstantBufferView(  //把constantbuffer绑定到根参数0上,那么shader里面必须通过b0来访问这个，并且只能是VS访问，不是PS访问，因为旋转时间矩阵只在VS里面用到
+            //    0,
+            //    constantBuffer.getGPUAddress(core->frameIndex())
+            //);  //把这个cb绑定到0槽口，让GPU取值
+            textureManager->updateTexturePS(core, "tex", textureID);  //绑定平面的纹理到像素着色器
+            //textureManager->updateTexturePS(core, "normalTex", normalID);
+            psos->bind(core, "Particle");  //然后绑定Plane的pso
+            //mesh.numMeshInstances = aliveParticles.size();  //要更新绘画的粒子数量
+            mesh.draw(core);  //这个draw里面已经同时取了两个顶点槽位了，但是有一个地方要更新，就是里面的那个draw的数量
+        }
+    };
     class Plane
     {
     public:
@@ -796,12 +969,13 @@
         ConstantBuffer constantBuffer;
         TextureManager* textureManager;
         int textureID;
+        int normalID;
         STATIC_VERTEX addVertex(Vec3 p, Vec3 n, float tu, float tv)
         {
             STATIC_VERTEX v;
             v.pos = p;
             v.normal = n;
-            v.tangent = Vec3(0, 0, 0);
+            v.tangent = Vec3(1, 0, 0);
             v.tu = tu;
             v.tv = tv;
             return v;
@@ -810,14 +984,14 @@
 	    void init(Core* core)  //这个函数用来初始化平面的顶点数据，并上传到显存中
         {
             std::vector<STATIC_VERTEX> vertices;
-		    //vertices.push_back(addVertex(Vec3(-15, 0, -15), Vec3(0, 1, 0), 0, 0));  //用helper函数来快速添加顶点，把多个属性一次性填进去
-      //      vertices.push_back(addVertex(Vec3(15, 0, -15), Vec3(0, 1, 0), 1, 0));
-      //      vertices.push_back(addVertex(Vec3(-15, 0, 15), Vec3(0, 1, 0), 0, 1));
-      //      vertices.push_back(addVertex(Vec3(15, 0, 15), Vec3(0, 1, 0), 1, 1));
-            vertices.push_back(addVertex(Vec3(-1024, 0, -1024), Vec3(0, 1, 0), 0, 0));
-            vertices.push_back(addVertex(Vec3(1024, 0, -1024), Vec3(0, 1, 0), 1, 0));
-            vertices.push_back(addVertex(Vec3(-1024, 0, 1024), Vec3(0, 1, 0), 0, 1));
-            vertices.push_back(addVertex(Vec3(1024, 0, 1024), Vec3(0, 1, 0), 1, 1));
+		    vertices.push_back(addVertex(Vec3(-50, 0, -50), Vec3(0, 1, 0), 0, 0));  //用helper函数来快速添加顶点，把多个属性一次性填进去
+            vertices.push_back(addVertex(Vec3(50, 0, -50), Vec3(0, 1, 0), 1, 0));
+            vertices.push_back(addVertex(Vec3(-50, 0, 50), Vec3(0, 1, 0), 0, 1));
+            vertices.push_back(addVertex(Vec3(50, 0, 50), Vec3(0, 1, 0), 1, 1));
+            //vertices.push_back(addVertex(Vec3(-1024, 0, -1024), Vec3(0, 1, 0), 0, 0));
+            //vertices.push_back(addVertex(Vec3(1024, 0, -1024), Vec3(0, 1, 0), 1, 0));
+            //vertices.push_back(addVertex(Vec3(-1024, 0, 1024), Vec3(0, 1, 0), 0, 1));
+            //vertices.push_back(addVertex(Vec3(1024, 0, 1024), Vec3(0, 1, 0), 1, 1));
 
 
             std::vector<unsigned int> indices = {
@@ -825,6 +999,7 @@
                 1, 2, 3
             };
 			textureID = textureManager->load(core, "Models/MudTexture.png");  //这里加载平面的纹理
+            normalID = textureManager->load(core, "Models/MudTextures/Grass1_normals.png");  //这里是加载法线贴图的纹理
 		    mesh.init(core, vertices, indices);  //这里将定点数据转化到VRAM中去了
 		    LoadShaders(core);  //这里是加载shader并创建pso
 		    constantBuffer.init(core, sizeof(ConstantBufferStruct_MVP), 2);  //这里是创建constantbuffer ，但是不太对吧，我应该是要穿移动MVP矩阵进去才对
@@ -853,7 +1028,7 @@
                 }
 
                 // Compile pixel shader
-                std::string psSource = ReadFile("TextureShader.txt");
+                std::string psSource = ReadFile("NormalTextureShader.txt");
 
                 hr = D3DCompile(psSource.c_str(), strlen(psSource.c_str()), NULL, NULL,
                     NULL, "PS", "ps_5_0", 0, 0, &pixelShader, &status);
@@ -871,15 +1046,17 @@
         void draw(Core* core, ConstantBufferStruct_MVP* cb)
         {
         
-		    core->beginRenderPass();//外层没有啊，我这里可以调用啊
+		    //core->beginRenderPass();//外层没有啊，我这里可以调用啊
 
 		    constantBuffer.update(cb, sizeof(ConstantBufferStruct_MVP), core->frameIndex());  //每一帧画之前都要更新constantbuffer的数据，cb就是更新完了当前帧要穿进来的MVP矩阵
-		    core->getCommandList()->SetGraphicsRootConstantBufferView(  //把constantbuffer绑定到根参数0上,那么shader里面必须通过b0来访问这个，并且只能是VS访问，不是PS访问，因为旋转时间矩阵只在VS里面用到
+		    
+            core->getCommandList()->SetGraphicsRootConstantBufferView(  //把constantbuffer绑定到根参数0上,那么shader里面必须通过b0来访问这个，并且只能是VS访问，不是PS访问，因为旋转时间矩阵只在VS里面用到
                 0,
                 constantBuffer.getGPUAddress(core->frameIndex())
             );
 			textureManager->updateTexturePS(core, "tex", textureID);  //绑定平面的纹理到像素着色器
-		    psos->bind(core, "Plane");  //然后绑定Plane的pso
+            //textureManager->updateTexturePS(core, "normalTex", normalID);
+            psos->bind(core, "Plane");  //然后绑定Plane的pso
             mesh.draw(core);
         }
     };
@@ -1052,7 +1229,7 @@
 		Material* shadowmaterial = nullptr; //每个渲染对象都有自己的材质指针，这样就可以实现一个材质被多个对象实例共享使用它的pso数据
 	    ConstantBuffer cb;  //这个是用来工薪MVP的cb
 	    //ConstantBuffer cbBones;// 这个是用来工薪骨骼矩阵的cb
-        Vec3 Position;
+        Vec3 Position; //必要要通过AABB、函数才能自动加上碰撞盒
         Vec3 Scalenum;
         float yaw;
 	    Matrix worldMatrix;  //每个渲染对象都有自己的世界矩阵,VP矩阵好像不需要存储在这里，因为每个对象的VP矩阵都是一样的，V矩阵是相机类自己定的，可以在实例化这个对象的时候传入初始位置
@@ -1167,7 +1344,7 @@
        //     }
 
         }
-	    void draw(Core* core) {  //我先纯绘制吧，后面再考虑材质，draw是放在了model里面的
+	    void draw(Core* core,const Matrix& vp) {  //我先纯绘制吧，后面再考虑材质，draw是放在了model里面的
             for (int i = 0; i < model->meshes.size(); i++)
             {
                 //model->texmanager->updateTexturePS(core, "albedo", )
@@ -1178,8 +1355,15 @@
                 //    model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
                 //    return;
                 //}
+                updateCB(core, vp);
+                material->bind(core);
                 model->texmanager->updateTexturePS(core, "tex", model->texmanager->find(model->textureFilenames[i])); //我严重怀疑是这里出了问题，就是我的texture着色器穿错了，而且这里必须我传进去的资源名称
 			    model->meshes[i]->draw(core);  //用这个mesh对应的文件名来find其自己的heapoffset，然后绑定到ps上
+                if (shadowmaterial)  //如果有shadowmaterisal指针，再绑定
+                {
+                    shadowmaterial->bind(core);
+                    model->meshes[i]->draw(core);  //重新再次绘制
+                }
             }
             //for (Mesh* m : model->meshes) {
             //    model->texmanager->updateTexturePS(core, "albedo",)
@@ -1187,6 +1371,13 @@
 
             //}
         }//,ConstantBufferStruct_MVP* cb
+    };
+    class Cow :public RenderObject
+    {
+    public:
+        //让怪物类继承render类然后新增自己的单独变量
+        bool isDead = false;
+        bool isanimationend = false;
     };
     class AnimatedModel:public Model  //这种model既包含mesh数据，又包含动画数据，所以可以直接实例化出一个动画模型对象，也可以用来做程序化生成器
     {
@@ -1648,12 +1839,191 @@
     //        }
     //    }
     //};
+
+    class MonsterManager
+    {
+    public:
+        RenderObject* MonsterPrototype;
+        std::vector < std::unique_ptr<Cow>> monsters;
+        MonsterManager(RenderObject* monsterpro)
+        {
+            MonsterPrototype = monsterpro;
+        }
+        void CreateFromPrototype(Core* core, const Vec3& postion)  //每调用一次就生成一个怪物
+        {
+            auto obj = std::make_unique<Cow>();
+            Cow* raw = obj.get();
+            raw->init(
+                core,
+                MonsterPrototype->model,
+                MonsterPrototype->material,
+                true,
+                MonsterPrototype->type_,
+                postion,
+                MonsterPrototype->Scalenum
+            );
+            raw->shadowmaterial = MonsterPrototype->shadowmaterial;
+
+            monsters.push_back(std::move(obj));
+            return;
+        }
+        void update(const RenderObject& obj, float dt)
+        {
+            CollisionDetect(obj, dt);
+            updateAni(dt);
+            Cleardeath();
+        }
+        //我的碰撞检测应该放在monstermanager里面，每帧对每个怪物遍历调用碰撞检测，清除也放在这个类里清除
+        void CollisionDetect(const RenderObject& obj, float dt)
+        {
+            for (auto& m : monsters)
+            {
+                if (AABBvsAABB(obj.Position, m->Position)) //这是指针数组
+                {
+                    ResolveAABB(obj.Position, m->Position); //产生碰撞并进行攻击判断
+                    if (!m->isDead && obj.animatoncontroller.currentState == States::Attack)  //当这个对象的状态是存活并且与他产生碰撞的对象进入攻击状态
+                    {
+                        m->isDead = true;  //进入死亡状态，
+                        m->animatoncontroller.currentState = States::Death;  //当检测到恐龙攻击后先开始播放动画，等结束之后即重新变回idle之后，标志动画播放完毕
+                        m->animatoncontroller.anim->resetAnimationTime();  //必须在切换到death之后重置动画帧播放时间在update里面重新播放
+                    }
+                }
+            }
+        }
+    void updateAni(float dt)  
+    {
+        for (auto& m : monsters)
+        {
+            m->animatoncontroller.update(dt);  //每一个怪物对象开始更新自己的动画对象
+            if (m->isDead && m->animatoncontroller.animationisfinish)
+            {
+                m->isanimationend = true;  //然后再来清除每一个即死亡，又完成了动画播放的
+            }
+        }
+
+    }
+    void Cleardeath()  //清除掉这个指针
+    {
+            monsters.erase(std::remove_if(monsters.begin(), monsters.end(), [](const std::unique_ptr<Cow>& c) {return c->isanimationend; }), monsters.end());
+    }
+    void Drawall(Core* core,const Matrix& vp)
+    {
+        for (const auto& m:monsters)  //只会遍历vector中已有的元素，不会遍历到空
+        {
+            m.get()->draw(core, vp);
+        }
+    }
+};
+    class LevelLoader
+    {
+    private:
+        Vec3 readVec3(std::ifstream& file)
+        {
+            float x, y, z;
+            file >> x >> y >> z;
+            return Vec3(x, y, z);
+        }
+        struct BambooSpawnData
+        {
+            int count = 0;
+            float minRange = 0;
+            float maxRange = 0;
+            Vec3 scale;
+            float y = 0;
+        };
+        struct CowSpawnData
+        {
+            int count = 0;
+            float minRange = 0;
+            float maxRange = 0;
+            Vec3 scale;
+            float y = 0;
+        };
+        float randomRange(float a, float b)
+        {
+            return a + static_cast<float>(rand()) / RAND_MAX * (b - a);
+        }
+    public:
+        bool load(
+            const std::string& filename,
+            Core* core,
+            RenderObject& dinosaur,
+            MonsterManager& cowManager,
+            std::vector<INSTANCE>& bambooInstances
+        )
+        {
+            std::ifstream file(filename);
+            if (!file.is_open())
+                return false;
+
+            std::string token;
+            while (file >> token)
+            {
+                if (token == "Dinosaur")
+                {
+                    file >> token; // position
+                    dinosaur.Position = readVec3(file);
+
+                    file >> token; // scale
+                    dinosaur.Scalenum = readVec3(file);
+                }
+                else if (token == "Bamboos")
+                {
+                    BambooSpawnData data;
+
+                    file >> token >> data.count;       // count
+                    file >> token >> data.minRange >> data.maxRange; // range
+                    file >> token; data.scale = readVec3(file); // scale
+                    file >> token >> data.y;           // y
+
+                    for (int i = 0; i < data.count; i++)
+                    {
+                        float x = randomRange(data.minRange, data.maxRange);
+                        float z = randomRange(data.minRange, data.maxRange);
+
+                        Matrix T = Matrix::translation(Vec3(x, data.y, z));
+                        Matrix S = Matrix::ScaleMatrix(data.scale);
+
+                        INSTANCE inst;
+                        inst.w = S * T;
+                        bambooInstances.push_back(inst);
+                    }
+                }
+                else if (token == "Cow")
+                {
+                    CowSpawnData data;
+
+                    file >> token >> data.count;       // count
+                    file >> token >> data.minRange >> data.maxRange; // range
+                    file >> token; data.scale = readVec3(file); // scale
+                    file >> token >> data.y;           // y
+
+                    for (int i = 0; i < data.count; i++)
+                    {
+                        float x = randomRange(data.minRange, data.maxRange);
+                        float z = randomRange(data.minRange, data.maxRange);
+
+                        Vec3 pos(x, data.y, z);
+                        cowManager.CreateFromPrototype(core, pos);
+
+                        // 覆盖 scale（因为是 prototype init）
+                        cowManager.monsters.back()->Scalenum = data.scale;
+                    }
+                }
+            }
+
+            return true;
+        }
+    };
     #define WIDTH 1920
     #define HEIGHT 1080
     int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         PSTR lpCmdLine, int nCmdShow)
-
     {
+        AllocConsole();
+        FILE* stream;
+        freopen_s(&stream, "CONOUT$", "w", stdout);
+        printf("Hello,Console!\n");
         //Triangle1 triangle;
         /*Window win(GetModuleHandle(NULL), "MyWindowClass", "Hello", 1024, 736, WndProc);*/
         Window win;
@@ -1663,10 +2033,7 @@
 
         ConstantBuffer lightCB;
         lightCB.init(&core,sizeof(LightCB),2);   //这里是初始化了一个光照cb，也是为双缓冲机制
-	    //Sphere sphere;
-	    //sphere.init(&core);  //初始化球体网格
-        //triangle.init(&core);
-        //ConstantBufferStruct constBufferCPU{};
+
 		LightCB lightdata  //这里直接初始化光照数据，然后进行全局绑定，不用每帧更新了吧
         {
         Vec3(-1.0f,-1.0f,-1.0f),
@@ -1685,7 +2052,7 @@
         //constBufferCPU.time = 0;
         GamesEngineeringBase::Timer timer;
         // 每帧更新
-        PSOManager psos;
+        PSOManager psos;  //这里已经有一个全局管理的psos了
         TextureManager texmanager;
         Plane plane;
 		plane.textureManager = &texmanager;  //把纹理管理器指针传递给plane对象
@@ -1697,53 +2064,41 @@
         cube.init(&core);  //初始化立方体网格，必须在这个的后面，难道是里面的某个东西没有初始化？，是在这个init的地方报错了
         Vec3 target = Vec3(0, 0, 0); // 看向平面中心
         Vec3 up = Vec3(0, 1, 0);
+        ParticleSystem particle;
+        particle.textureManager = &texmanager;
+        particle.psos = &psos;
+        particle.init(&core);
 
-        //Material material_tree;  //我既然有个问题，为什么我后面都要用你的指针你为什么要用实力对象资源
-	    //material_tree.LoadShaders(&core, "VertexShader.hlsl", "PixelShader.hlsl", "TreeMaterial");  //这里是加载了一个新的pso管线，可以在后面的treedraw前利用tree的material指针来设定当前的pso状态,只要让对象包含meterail指针就行
-	    //Model* treeModel = new Model();  //创建一个model对象用来加载树模型的mesh数据
-	    //treeModel->load(&core, "acacia_003.gem");  //加载树模型，因为同在一个目录所以直接写文件名，这是完成了mesh加载 //这里就完成了model的mesh数据加载
-	    //RenderObject tree_1, tree_2;  //创建两个树对象实例
-	    //tree_1.init(&core, treeModel, &material_tree);  //初始化tree对象，同时传入model和material指针
-	    //tree_2.init(&core, treeModel, &material_tree);  //第二个树对象也用同一个model和material
-	    //tree.load(&core, "acacia_003.gem");  //加载树模型，因为同在一个目录所以直接写文件名，这是完成了mesh加载
-        //tree.material = &material_1;
-	    //AnimatedModel animatedModel;  //我这里是创建了一个动画模型对象，然后通过load函数加载模型和动画数据，然后我又要让renderobject来引用这个animatedmodel对象，那我为什么不直接让renderobject来load呢
-	    //animatedModel.texmanager = &texmanager; //我应该先建立指针引用再load
-	    //animatedModel.load(&core, "Models/TRex.gem");  //加载动画模型
+
 	    ModelManager modelmanager;
 	    modelmanager.texmanager = &texmanager;  //把纹理管理器指针传递给模型管理器
 	    modelmanager.loadModel(&core, "Models/TRex.gem", "dinosaur", true);  //通过模型管理器加载动画模型
-        std::vector<INSTANCE> fourmatrix;
-        //Vec3 positions[4] =
-        //{
-        //    Vec3(-5, 0, -5),
-        //    Vec3(5, 0, -5),
-        //    Vec3(-5, 0,  5),
-        //    Vec3(5, 0,  5)
-        //}; 
-        std::vector<INSTANCE> fourmatrix_2;
-        fourmatrix_2.reserve(100);
-        std::random_device rd;
-        std::mt19937 gen(rd());
 
-        // XZ 范围：[-500, 500]
-        std::uniform_real_distribution<float> distPos(-200.0f, 200.0f);
-        for (int i = 0; i < 100; i++)
-        {
-            float x = distPos(gen);
-			float z = distPos(gen);
-            Vec3 position = Vec3(x, 0.0f, z);
-            Matrix T = Matrix::translation(position);
-            Matrix S = Matrix::ScaleMatrix(Vec3(0.1f, 0.1f, 0.1f));
-            INSTANCE inst;
-            inst.w = S * T;  //先缩放再平移  从做到右的变换顺序
-			fourmatrix_2.push_back(inst);
-        }
+        std::vector<INSTANCE> fourmatrix;
+
+   //     std::vector<INSTANCE> fourmatrix_2;  //这一段是在进行竹子的instancing
+   //     fourmatrix_2.reserve(100);
+   //     std::random_device rd;
+   //     std::mt19937 gen(rd());
+
+   //     // XZ 范围：[-500, 500]
+   //     std::uniform_real_distribution<float> distPos(-200.0f, 200.0f);
+   //     for (int i = 0; i < 150; i++)
+   //     {
+   //         float x = distPos(gen);
+			//float z = distPos(gen);
+   //         Vec3 position = Vec3(x, 0.0f, z);
+   //         Matrix T = Matrix::translation(position);
+   //         Matrix S = Matrix::ScaleMatrix(Vec3(0.1f, 0.1f, 0.1f));
+   //         INSTANCE inst;
+   //         inst.w = S * T;  //先缩放再平移  从做到右的变换顺序
+			//fourmatrix_2.push_back(inst);
+   //     }  //INSTACING矩阵
 		RenderObject* monster = new RenderObject();  //创建一个动画模型对象实例的指针
 		AnimationMaterial CowMaterial;
 		CowMaterial.LoadShaders(&core, "C:/Lesson/New_project/New_project/VSAnim.txt", "C:/Lesson/New_project/New_project/TextureShader.txt", "CowMaterial", texmanager);  //加载动画模型的材质，肯定要包含psos
 		modelmanager.loadModel(&core, "Models/Cow-white.gem", "cow", true);  //通过模型管理器加载动画模型
-        modelmanager.loadModel(&core, "Models/bamboo.gem", "bamboo", false, &fourmatrix_2); //在加载bamboo的时候空了？
+        //modelmanager.loadModel(&core, "Models/bamboo.gem", "bamboo", false, &fourmatrix_2); //在加载bamboo的时候空了？
 	    AnimationMaterial animateMaterial; //如果我断点打在这一行代表还没有进入这一行执行，前面行的内容已经执行完了，在执行这一行之前暂停
 	    //animateMaterial.texmanager = &texmanager;
 		//Material treeMaterial;
@@ -1771,8 +2126,35 @@
 		monster->init(&core, modelmanager.getModel("cow"), &CowMaterial, true, RenderType::Animated,Vec3(10,0,10),Vec3(0.03f,0.03f,0.03f)); //还有初始World变化矩阵 //初始化dinosaur对象，同时传入model和material指针,因为是动画模型所以传true
 		monster->worldMatrix = Matrix::ScaleMatrix(Vec3(0.03f, 0.03f, 0.03f)); //把牛模型缩小
 		monster->shadowmaterial = &cowShadowMaterial; //把牛的阴影材质指针传递给牛对象
+        MonsterManager Cowmanager(monster);  //只声明不加载
+        //for (int i = 0; i < 20; i++)
+        //{
+
+        //    Vec3 monsterpos{ distPos(gen),0,distPos(gen) };
+        //    Cowmanager.CreateFromPrototype(&core, monsterpos);
+        //}
         //RenderObject tree;
         //tree.init(&core, modelmanager.getModel("tree"), &treeMaterial, false, RenderType::Instanced);  //看一下里面的model的meshes传进来没有
+        LevelLoader levelloader;
+
+        std::vector<INSTANCE> bambooInstances;
+
+        levelloader.load(
+            "level.txt",
+            &core,
+            dinosaur,
+            Cowmanager,
+            bambooInstances
+        );
+
+        // 用 loader 填好的 bambooInstances 初始化 instancing
+        modelmanager.loadModel(
+            &core,
+            "Models/bamboo.gem",
+            "bamboo",
+            false,
+            &bambooInstances
+        );
 		RenderObject bamboo;
 		bamboo.init(&core, modelmanager.getModel("bamboo"), &bambooMaterial, false, RenderType::Instanced,Vec3(20,20,20),Vec3(1,1,1));  //看一下里面的model的meshes传进来没有
 		//bamboo.shadowmaterial = &bambooShadowMaterial; //把竹子的阴影材质指针传递给竹子对象
@@ -1797,17 +2179,20 @@
 		int lastmousey = win.getMouseInWindowY();
         //Vec3 dinosaurPos = Vec3(0, 0, 0);
         float dinosaurYaw = 0.0f;
-       
+        float counttime = 0;
+
         while (true)
         {
             float dt = timer.dt();
 		    t += dt;  //累加这个t变量，然后再每帧重新算矩阵位置
+            //std::cout << "Now FPS IS:" << 1 / dt << std::endl;
             core.beginFrame();
             //win.processMessages();
             win.checkInput();
             if (win.keys[VK_ESCAPE]) break;
             core.beginRenderPass();
             int slot = core.frameIndex(); // 双缓冲
+
             lightCB.update(&lightdata, sizeof(lightdata), slot);  //我这里直接把光照数据从CPU端更新到，还是要更新的
             core.getCommandList()->SetGraphicsRootConstantBufferView(
 				2, lightCB.getGPUAddress(slot));  //将光照数据绑定到根参数槽2上，每个用了光照数据的shader都可以通过这个槽位来访问光照数据
@@ -1820,16 +2205,7 @@
 		    lastmousex = win.getMouseInWindowX();  //把当前鼠标位置存为上次位置，供下一帧计算偏移量，以防止大幅度跳动
 			lastmousey = win.getMouseInWindowY();
             camera.updateCameraPosition(win,dt,dx,dy);  //worldmatrix的本质是什么，是这个对象的换
-            //Vec3 dinosaurPos(
-            //    dinosaur.worldMatrix.m[3],
-            //    dinosaur.worldMatrix.m[7],
-            //    dinosaur.worldMatrix.m[11]
-            //);
-            //Matrix S = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
-            //Matrix R = Matrix::RotationMatrixY(camera.yaw);
-            //Matrix T = Matrix::translation(dinosaur.Position);
 
-            //dinosaur.worldMatrix = S * R * T;
             Matrix vp =  camera.getViewMatrix(dinosaur.Position)* Matrix::ProjectionMatrix(120.f, static_cast<float>((1024) / static_cast<float>(736)), 1.f, 100.0f);
 		    //我现在来总结一下我的矩阵，现在的A * B是正确的顺序，但是只能是在C++端满足，所以C++端所有的处理是右乘列向量，但是HLSL是左乘行向量的，所以在HLSL更新的矩阵要把矩阵乘的顺序颠倒
             //core.resetCommandList();  // 先 reset
@@ -1839,14 +2215,14 @@
             //{
             //    animatedInstance.resetAnimationTime();
             //}
-            dinosaur.animatoncontroller.update(dt);  //更新动画控制器，每帧都要更新,不然不会
+            dinosaur.animatoncontroller.update(dt);  //更新动画控制器，每帧都要更新,不然不会进行动画的变化
 		    //核心的关键是HLSL 会将传入的 $\mathbf{VP}$ 矩阵视作转置矩阵，所以会对其进行转置，(AB)的转置等于B的转置乘以A的转置，AB左乘v列向量，和转置后的B的转置乘以A的转置左乘v行向量的结果是一样的。
             //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
             //Matrix W = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f));
             //animatedModel.draw(&core, &psos, &shaders, &animatedInstance, vp, W);
 		    //dinosaur.worldMatrix = Matrix::ScaleMatrix(Vec3(0.01f, 0.01f, 0.01f)); //把恐龙模型缩小,但是这里有问题，因为你一进来之后，每次循环都重新把worldtrix置灰原值
             dinosaur.yaw = camera.yaw;//我这里不是写了吗,如果你的赋值放在循坏外代表这个值只会被更改一次，循环内不会影响这个值的改变
-		    dinosaur.updateCB(&core, vp);  //更新恐龙实例的constantbuffer  //里面的骨骼矩阵cb也会被更新但是不用自己传进去
+		    //dinosaur.updateCB(&core, vp);  //更新恐龙实例的constantbuffer  //里面的骨骼矩阵cb也会被更新但是不用自己传进去
 		    //dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
 
             //texmanager.loadreflection();
@@ -1859,15 +2235,18 @@
                 cosf(camera.yaw)
             );
             camForward = camForward.normalize();
-            Vec3 camleft = Vec3(0, 1, 0).Cross(camForward).normalize();
+            Vec3 camleft = Vec3(0, 1, 0).Cross(camForward).normalize(); //我的这个cross是右手坐标系
+            
             if (win.keyPressed('W'))  //前进
             { //由于hlsl的相反乘法，导致我在写变换顺序的时候正好是左边的先开始变换
 /*                Matrix movematrix = Matrix::translation(Vec3(camForward * dt * cameraspeed));
                 dinosaur.worldMatrix = dinosaur.worldMatrix * movematrix*/;  //前进的方向是forward方向  * 速度 * 帧间隔时间  //其实所有的移动都是通过平移变换矩阵实现的！所有的运动都可以拆成旋转，平移矩阵的叠合
                 dinosaur.Position += camForward * dt * cameraspeed;
                 dinosaur.animatoncontroller.setState(States::Run);
-            }
+                 particle.spawn(dinosaur.Position);  //直接传入恐龙的当前位置作为点位
 
+                
+            }
             else if (win.keyPressed('S'))  //后退
             {
                 //camaraposition -= forward * cameraspeed * deltaTime;
@@ -1897,39 +2276,31 @@
             {
 				dinosaur.animatoncontroller.setState(States::Attack);  //但是这里有个问题，就是按住不放会一直触发攻击动画
             }
-
-			dinosaur.material->bind(&core);//传指针不要传类对象，因为会造成拷贝
-		    dinosaur.draw(&core);  //画恐龙模型
-			dinosaur.shadowmaterial->bind(&core);  //绑定恐龙阴影渲染管线状态
-			dinosaur.draw(&core);  //我分别绑定两次材质来画两次恐龙模型，一次是正常渲染，一次是阴影渲染
-			//dinosaur.material = &dinosaurShadowMaterial;  //最关键的原因是你每帧一进来用的是上一帧残存的material指针，所以要变回原来的指针绘制需要重新赋值
-			//dinosaur.material->bind(&core);   //绑定恐龙阴影渲染管线状态，但是这个好麻烦还要重新换一次materail来绑定渲染管线
-			//dinosaur.draw(&core);  //画恐龙模型的阴影
-			//tree.material->bind(&core);  //绑定树的渲染管线状态
-			//tree.updateCB(&core, vp);  //更新树实例的constantbuffer
-			//tree.draw(&core);  //画树模型
-			monster->updateCB(&core, vp);  //更新牛实例的constantbuffer
-			monster->material->bind(&core);//传指针不要传类对象，因为会造成拷贝,不用更新牛的cb吗？
-			monster->draw(&core);  //画牛模型
-			monster->shadowmaterial->bind(&core);  //绑定牛阴影渲染管线状态
-			monster->draw(&core);  //我分别绑定两次材质来画两次牛模型，一次是正常渲染，一次是阴影渲染
-            if (AABBvsAABB(dinosaur.Position,monster->Position))  //如果返回为ture，说明产生碰撞开始退役
+            if (counttime > 0)
             {
-                ResolveAABB(dinosaur.Position, monster->Position);   //进行推开
+                counttime -= dt;  //如果大于0，就每帧减
             }
+            else
+            {
+                counttime = 0;  //如果减小到0，重新赋值为0
+            }
+            particle.update(dt, &core);
+            particle.ParticleupdateCB(&core, vp,camera.up, camera.right);
+            particle.draw(&core);
+            dinosaur.draw(&core,vp);
+            Cowmanager.update(dinosaur, dt);
+            //monster->draw(&core, vp);
+            Cowmanager.Drawall(&core, vp);
+            //for (const auto& m:Cowmanager.monsters)
+            //{
+            //    if (AABBvsAABB(dinosaur.Position, m->Position))  //如果返回为ture，说明产生碰撞开始退役
+            //    {
+            //        ResolveAABB(dinosaur.Position, m->Position);   //进行推开
+            //    }
+            //}
            /* }*/
-            bamboo.material->bind(&core);  //绑定树的渲染管线状态
-            bamboo.updateCB(&core, vp);  //更新树实例的constantbuffer
-            bamboo.draw(&core);  //画树模型
-			//bamboo.shadowmaterial->bind(&core);  //绑定竹子阴影渲染管线状态
-			bamboo.draw(&core);  //我分别绑定两次竹子模型，一次是正常渲染，一次是阴影渲染
-            //在相机中我们需要人为规定一个映射比例，来表示在屏幕上鼠标移动的像素距离对应于相机旋转的角度变化
-            //shaders.updateConstantVS("AnimatedUntextured", "staticMeshBuffer", "VP", &vp);
-           
-            //animatedModel.draw(&core, &psos, &shaders, &animatedInstance, vp, W);
+            bamboo.draw(&core, vp);
 
-            //constBufferMVP.W = Matrix::translation(Vec3(5.0f, 0.0f, 0.0f)); //把立方体平移5个单位
-            //constBufferMVP.W = Matrix::Translation(Vec3(5.0f, 0, 0));
             constBufferMVP.W = Matrix::ScaleMatrix(Vec3(10.f,10.f,10.f));
             constBufferMVP.VP = vp;  //按照我的写法，矩阵放右边的是先右乘的，每一
 		    plane.draw(&core, &constBufferMVP);     // 再录制 draw

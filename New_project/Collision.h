@@ -8,7 +8,7 @@ struct AABB
 };
 static AABB WorldBox(const Vec3& WorldPos)
 {
-	AABB localBox{ Vec3(-2,0,-2),Vec3(2,3,2) };  //我直接确定写死一个每个物体的局部坐标系下的包围盒
+	AABB localBox{ Vec3(-3,0,-3),Vec3(3,3,5) };  //我直接确定写死一个每个物体的局部坐标系下的包围盒
 
 	return AABB{ localBox.min + WorldPos,localBox.max + WorldPos };  //转化为世界坐标系下的包围盒
 }

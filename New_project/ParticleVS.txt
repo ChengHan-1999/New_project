@@ -1,0 +1,35 @@
+struct VS_INPUT
+{
+    float3 corner : CORNER;   // slot 0
+    float2 uv     : TEXCOORD;
+
+    float3 center : CENTER;   // slot 1
+    float  size   : SIZE;
+};
+
+struct PS_INPUT
+{
+    float4 Pos : SV_POSITION;
+    float2 UV  : TEXCOORD;
+};
+
+cbuffer ParticleCB : register(b0)
+{
+    float4x4 VP;
+    float3 camRight; float pad0;
+    float3 camUp;    float pad1;
+};
+
+PS_INPUT VS(VS_INPUT input)
+{
+    PS_INPUT output;
+    float3 worldPos =
+        input.center
+        + input.corner.x * input.size * camRight
+        + input.corner.y * input.size * camUp;
+
+    output.Pos = mul(float4(worldPos, 1.0f), VP);
+    output.UV  = input.uv;
+
+    return output;
+}

@@ -135,6 +135,7 @@
     <ClInclude Include="Core.h" />
     <ClInclude Include="GamesEngineeringBase.h" />
     <ClInclude Include="GEMLoader.h" />
+    <ClInclude Include="Levelload.h" />
     <ClInclude Include="New.h" />
     <ClInclude Include="Particle.h" />
     <ClInclude Include="PipeLine.h" />
